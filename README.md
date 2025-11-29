@@ -69,7 +69,7 @@ SchoolReg est une application web moderne de gestion scolaire complète, conçue
 - **Framework**: React 18 + TypeScript + Vite
 - **Styling**: TailwindCSS
 - **Icônes**: Lucide React
-- **Paiements**: PayPal SDK
+-- **Paiements**: Stripe SDK
 
 ### Backend (Architecture Microservices)
 - **API Gateway**: Node.js + Express + http-proxy-middleware
@@ -94,7 +94,7 @@ SchoolReg est une application web moderne de gestion scolaire complète, conçue
 - Python 3.10+
 - PostgreSQL 14+
 - MongoDB 6+ (optionnel, pour resources service)
-- Compte PayPal Developer (optionnel, pour paiements en ligne)
+- Compte Stripe Developer (pour paiements en ligne)
 
 ### Installation rapide
 
@@ -132,7 +132,7 @@ Le fichier `.env` à la racine contient toute la configuration:
 ```env
 # Frontend
 VITE_API_URL=http://localhost:3001/api
-VITE_PAYPAL_CLIENT_ID=YOUR_SANDBOX_CLIENT_ID
+VITE_STRIPE_PUBLISHABLE_KEY=pk_test_YOUR_STRIPE_PUBLISHABLE_KEY
 
 # Databases
 DATABASE_URL=postgresql://postgres:password@localhost:5432/schoolreg
@@ -367,10 +367,10 @@ exemple (après inscription, on recoit un message sur le profil qui nous dit de 
 ## 🙏 Remerciements
 
 - [React](https://react.dev)
-- [Supabase](https://supabase.com)
+_ [Stripe](https://stripe.com)
 - [TailwindCSS](https://tailwindcss.com)
 - [Lucide Icons](https://lucide.dev)
-- [PayPal](https://developer.paypal.com)
+- [PostgreSQL](https://postgresql.org)
 
 ## 📞 Support
 
