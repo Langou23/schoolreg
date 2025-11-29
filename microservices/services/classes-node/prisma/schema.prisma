@@ -1,0 +1,318 @@
+// Prisma Schema for SchoolReg PostgreSQL Database
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USERS & AUTHENTICATION
+// ============================================
+
+model User {
+  id         String   @id @default(uuid())
+  email      String   @unique
+  password   String
+  role       UserRole
+  fullName   String   @map("full_name")
+  studentId  String?  @unique @map("student_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  student    Student?  @relation("UserStudent")
+  payments   Payment[]
+  
+  @@map("users")
+}
+
+enum UserRole {
+  admin
+  parent
+  student
+}
+
+// ============================================
+// STUDENTS
+// ============================================
+
+model Student {
+  id                String    @id @default(uuid())
+  firstName         String    @map("first_name")
+  lastName          String    @map("last_name")
+  dateOfBirth       DateTime  @map("date_of_birth")
+  gender            Gender
+  address           String
+  
+  // Parent Information
+  parentName        String    @map("parent_name")
+  parentPhone       String    @map("parent_phone")
+  parentEmail       String    @map("parent_email")
+  
+  // Academic Information
+  program           String
+  session           String
+  secondaryLevel    String    @map("secondary_level")
+  status            StudentStatus @default(pending)
+  
+  // Financial Information
+  tuitionAmount     Float     @map("tuition_amount")
+  tuitionPaid       Float     @default(0) @map("tuition_paid")
+  
+  // Dates
+  enrollmentDate    DateTime  @default(now()) @map("enrollment_date")
+  sessionStartDate  DateTime? @map("session_start_date")
+  registrationDeadline DateTime? @map("registration_deadline")
+  
+  // Application Link
+  applicationId     String?   @unique @map("application_id")
+  
+  // User Link
+  userId            String?   @unique @map("user_id")
+  user              User?     @relation("UserStudent", fields: [userId], references: [id])
+  
+  // Relations
+  enrollments       Enrollment[]
+  payments          Payment[]
+  application       Application? @relation(fields: [applicationId], references: [id])
+  
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([parentEmail])
+  @@index([status])
+  @@index([program])
+  @@map("students")
+}
+
+enum Gender {
+  Masculin
+  Feminin
+  Autre
+}
+
+enum StudentStatus {
+  pending
+  active
+  inactive
+  graduated
+  suspended
+}
+
+// ============================================
+// APPLICATIONS
+// ============================================
+
+model Application {
+  id                String            @id @default(uuid())
+  
+  // Student Information
+  firstName         String            @map("first_name")
+  lastName          String            @map("last_name")
+  dateOfBirth       DateTime          @map("date_of_birth")
+  gender            Gender
+  address           String
+  
+  // Parent Information
+  parentName        String            @map("parent_name")
+  parentPhone       String            @map("parent_phone")
+  parentEmail       String            @map("parent_email")
+  
+  // Academic Information
+  program           String
+  session           String
+  secondaryLevel    String            @map("secondary_level")
+  previousSchool    String?           @map("previous_school")
+  
+  // Application Status
+  status            ApplicationStatus @default(pending)
+  notes             String?
+  studentId         String?           @unique @map("student_id")
+  
+  // Timestamps
+  submittedAt       DateTime          @default(now()) @map("submitted_at")
+  reviewedAt        DateTime?         @map("reviewed_at")
+  reviewedBy        String?           @map("reviewed_by")
+  
+  // Relations
+  student           Student?
+  documents         ApplicationDocument[]
+  
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  @@index([parentEmail])
+  @@index([status])
+  @@index([submittedAt])
+  @@map("applications")
+}
+
+enum ApplicationStatus {
+  pending
+  approved
+  rejected
+}
+
+model ApplicationDocument {
+  id            String      @id @default(uuid())
+  applicationId String      @map("application_id")
+  type          DocumentType
+  fileName      String      @map("file_name")
+  fileUrl       String      @map("file_url")
+  fileSize      Int         @map("file_size")
+  mimeType      String      @map("mime_type")
+  uploadedAt    DateTime    @default(now()) @map("uploaded_at")
+  
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  
+  @@index([applicationId])
+  @@map("application_documents")
+}
+
+enum DocumentType {
+  birth_certificate
+  photo
+  previous_report
+  medical_record
+  other
+}
+
+// ============================================
+// CLASSES
+// ============================================
+
+model Class {
+  id              String       @id @default(uuid())
+  name            String
+  level           String
+  capacity        Int
+  currentStudents Int          @default(0) @map("current_students")
+  schedule        String?
+  room            String?
+  teacherName     String?      @map("teacher_name")
+  session         String
+  
+  // Relations
+  enrollments     Enrollment[]
+  
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  @@index([session])
+  @@index([level])
+  @@map("classes")
+}
+
+// ============================================
+// ENROLLMENTS
+// ============================================
+
+model Enrollment {
+  id              String           @id @default(uuid())
+  studentId       String           @map("student_id")
+  classId         String           @map("class_id")
+  enrollmentDate  DateTime         @default(now()) @map("enrollment_date")
+  status          EnrollmentStatus @default(active)
+  grade           Float?
+  attendance      Float?           @default(0)
+  
+  // Relations
+  student         Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  class           Class            @relation(fields: [classId], references: [id], onDelete: Cascade)
+  
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  @@unique([studentId, classId])
+  @@index([studentId])
+  @@index([classId])
+  @@map("enrollments")
+}
+
+enum EnrollmentStatus {
+  active
+  completed
+  dropped
+  failed
+}
+
+// ============================================
+// PAYMENTS
+// ============================================
+
+model Payment {
+  id            String        @id @default(uuid())
+  studentId     String        @map("student_id")
+  amount        Float
+  paymentType   PaymentType   @map("payment_type")
+  paymentMethod String        @map("payment_method")
+  status        PaymentStatus @default(pending)
+  transactionId String?       @unique @map("transaction_id")
+  notes         String?
+  
+  // Dates
+  paymentDate   DateTime      @default(now()) @map("payment_date")
+  dueDate       DateTime?     @map("due_date")
+  
+  // Relations
+  student       Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  userId        String?       @map("user_id")
+  user          User?         @relation(fields: [userId], references: [id])
+  
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  @@index([studentId])
+  @@index([status])
+  @@index([paymentDate])
+  @@map("payments")
+}
+
+enum PaymentType {
+  tuition
+  registration
+  books
+  uniform
+  transport
+  other
+}
+
+enum PaymentStatus {
+  pending
+  paid
+  cancelled
+  refunded
+}
+
+// ============================================
+// NOTIFICATIONS
+// ============================================
+
+model Notification {
+  id        String             @id @default(uuid())
+  userId    String?            @map("user_id")
+  type      NotificationType
+  title     String
+  message   String
+  isRead    Boolean            @default(false) @map("is_read")
+  data      Json?
+  
+  createdAt DateTime           @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  application_status
+  payment_reminder
+  enrollment_update
+  general
+  urgent
+}

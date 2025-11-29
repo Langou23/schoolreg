@@ -1,0 +1,174 @@
+# ================================
+# LOGS & DEBUG
+# ================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# ================================
+# DEPENDENCIES (TRÈS LOURDES)
+# ================================
+node_modules/
+*/node_modules/
+microservices/client/frontend-react/node_modules/
+microservices/server/node_modules/
+microservices/services/*/node_modules/
+.npm
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# ================================
+# BUILD & DIST (GÉNÉRÉS)
+# ================================
+dist/
+dist-ssr/
+build/
+*/dist/
+*/build/
+microservices/client/frontend-react/dist/
+microservices/client/frontend-react/build/
+*.egg-info/
+
+# ================================
+# BASES DE DONNÉES (DONNÉES SENSIBLES)
+# ================================
+*.db
+*.sqlite
+*.sqlite3
+students.db
+payments.db
+auth.db
+applications.db
+classes.db
+notifications.db
+
+# ================================
+# PYTHON
+# ================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+pip-log.txt
+pip-delete-this-directory.txt
+.coverage
+htmlcov/
+.pytest_cache/
+
+# ================================
+# VARIABLES D'ENVIRONNEMENT (SECRETS)
+# ================================
+.env
+.env.local
+.env.development
+.env.production
+.env.staging
+.env.*.local
+*/.env
+microservices/*/.env
+microservices/services/*/.env
+
+# ================================
+# STRIPE & PAIEMENTS (SÉCURITAIRES)
+# ================================
+stripe_keys.json
+config/secrets.json
+*.key
+*.pem
+payment-logs/
+
+# ================================
+# CACHE & TEMPORAIRES
+# ================================
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
+.vuepress/dist
+*.local
+*.backup_*
+
+# ================================
+# IDE & EDITEURS
+# ================================
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swp
+*.swo
+*~
+
+# ================================
+# SYSTÈME D'EXPLOITATION
+# ================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ================================
+# UPLOADS & FICHIERS UTILISATEUR
+# ================================
+microservices/uploads/*
+!microservices/uploads/.gitkeep
+microservices/server/uploads/*
+!microservices/server/uploads/.gitkeep
+uploads/
+documents/
+user-files/
+*.pdf
+*.doc
+*.docx
+
+# ================================
+# TESTS & COVERAGE
+# ================================
+coverage/
+*.lcov
+.nyc_output
+test-results/
+playwright-report/
+
+# ================================
+# LEGACY & BACKUP
+# ================================
+microservices/gateway/
+backup/
+*.backup
+*.bak
+old/
+archive/
+
+# ================================
+# SPÉCIFIQUE SCHOOLREG
+# ================================
+# Fichiers de test/demo
+test-data/
+demo-files/
+sample-data/
+reset-demo-data/
+
+# Logs spécifiques aux microservices  
+microservices/services/*/logs/
+microservices/services/*/*.log

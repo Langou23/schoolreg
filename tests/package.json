@@ -1,0 +1,26 @@
+{
+  "name": "schoolreg-api-tests",
+  "version": "1.0.0",
+  "description": "Tests de santé des APIs SchoolReg",
+  "main": "api-test-runner.js",
+  "scripts": {
+    "test": "node api-test-runner.js",
+    "test:continuous": "node continuous-health-monitor.js",
+    "test:report": "node generate-report.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "colors": "^1.4.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "keywords": [
+    "api",
+    "health",
+    "testing",
+    "microservices"
+  ],
+  "author": "SchoolReg Team",
+  "license": "MIT"
+}

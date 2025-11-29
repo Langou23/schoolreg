@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Réinitialiser les Données - SchoolRegPro</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 500px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+            font-size: 28px;
+        }
+        p {
+            color: #666;
+            line-height: 1.6;
+        }
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .info-box h3 {
+            margin: 0 0 10px 0;
+            color: #1976d2;
+            font-size: 16px;
+        }
+        .info-box ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .info-box li {
+            color: #555;
+            margin: 5px 0;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: all 0.3s;
+        }
+        button:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        .success {
+            background: #4caf50;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none;
+            text-align: center;
+        }
+        .back-link {
+            display: block;
+            text-align: center;
+            margin-top: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 Réinitialiser les Données</h1>
+        <p>Cette action va effacer toutes les données actuelles et recharger les données de démonstration par défaut.</p>
+        
+        <div class="info-box">
+            <h3>📊 Données de démonstration incluses :</h3>
+            <ul>
+                <li><strong>2 comptes</strong> : Admin + Enseignant</li>
+                <li><strong>3 élèves</strong> : Sophie, Lucas, Emma</li>
+                <li><strong>2 classes</strong> : 6ème A, 5ème B</li>
+                <li><strong>4 paiements</strong> : 1 150€ payés + 500€ en attente</li>
+            </ul>
+        </div>
+
+        <div class="info-box">
+            <h3>🔐 Comptes de connexion :</h3>
+            <ul>
+                <li><strong>Admin</strong> : admin@schoolreg.com / admin123</li>
+                <li><strong>Enseignant</strong> : prof@schoolreg.com / prof123</li>
+            </ul>
+        </div>
+
+        <button onclick="resetData()">Réinitialiser maintenant</button>
+        
+        <div class="success" id="success">
+            ✅ Données réinitialisées avec succès !<br>
+            Redirection dans 2 secondes...
+        </div>
+
+        <a href="/" class="back-link">← Retour à l'accueil</a>
+    </div>
+
+    <script>
+        function resetData() {
+            // Effacer tout le localStorage
+            localStorage.clear();
+            
+            // Afficher le message de succès
+            document.getElementById('success').style.display = 'block';
+            
+            // Rediriger vers la page d'accueil après 2 secondes
+            setTimeout(() => {
+                window.location.href = '/';
+            }, 2000);
+        }
+    </script>
+</body>
+</html>

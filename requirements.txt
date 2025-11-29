@@ -1,0 +1,20 @@
+# Python Dependencies pour tous les microservices Python/FastAPI
+# Utilisé par: payments-fastapi, resources-fastapi
+
+# FastAPI et serveur
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# Base de données
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+
+# Validation et schémas
+pydantic>=2.7.4
+
+# Utilitaires
+python-dotenv==1.0.0
+python-jose[cryptography]==3.3.0
+
+# Stripe (pour payments-fastapi)
+stripe==11.1.0

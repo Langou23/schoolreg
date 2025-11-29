@@ -1,0 +1,194 @@
+{
+  "timestamp": "2025-11-27T20:12:55.112Z",
+  "duration": 52.316,
+  "summary": {
+    "total": 26,
+    "passed": 0,
+    "failed": 26,
+    "successRate": "0.0"
+  },
+  "details": [
+    {
+      "name": "Connectivité Gateway",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Connectivité Auth Service",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Connectivité Applications Service",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Connectivité Students Service",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Connectivité Payments Service",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Connectivité Classes Service",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Gateway Health",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Auth Health",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Students Health",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Payments Health",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Applications Health",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Classes Health",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Auth - Validation endpoint signup",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Auth - Gestion erreurs signin",
+      "status": "FAIL",
+      "error": "Test failed",
+      "attempts": 3
+    },
+    {
+      "name": "Students - Liste des élèves",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Students - Statistiques dashboard",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Students - Paiements avec infos élèves",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Payments - Service Stripe disponible",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Applications - Liste des demandes",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Classes - Liste des classes",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Communication Gateway → Students",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Communication Gateway → Auth",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Performance Gateway (< 2s)",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Performance Students (< 2s)",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Performance Payments (< 2s)",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    },
+    {
+      "name": "Gestion requêtes concurrentes (5x)",
+      "status": "FAIL",
+      "error": "Error",
+      "attempts": 3
+    }
+  ],
+  "services": {
+    "gateway": {
+      "url": "http://localhost:3001",
+      "name": "Gateway"
+    },
+    "auth": {
+      "url": "http://localhost:4001",
+      "name": "Auth Service"
+    },
+    "applications": {
+      "url": "http://localhost:4002",
+      "name": "Applications Service"
+    },
+    "students": {
+      "url": "http://localhost:4003",
+      "name": "Students Service"
+    },
+    "payments": {
+      "url": "http://localhost:4004",
+      "name": "Payments Service"
+    },
+    "classes": {
+      "url": "http://localhost:4005",
+      "name": "Classes Service"
+    }
+  }
+}
