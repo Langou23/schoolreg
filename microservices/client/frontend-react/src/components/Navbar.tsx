@@ -1,5 +1,6 @@
 import { LogOut, User, GraduationCap, LogIn } from 'lucide-react';
 import { UserProfile } from '../types';
+import { isAdminLike } from '../hooks/useAuthz';
 
 interface NavbarProps {
   user?: UserProfile | null;
@@ -76,9 +77,16 @@ export default function Navbar({ user, onLogout, onLogin }: NavbarProps) {
                       <User className="w-4 h-4 text-white" />
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-sm font-semibold text-gray-900">
-                        {user.fullName}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-900">
+                          {user.fullName}
+                        </span>
+                        {isAdminLike(user) && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            Admin
+                          </span>
+                        )}
+                      </div>
                       <span className="text-xs text-gray-500">
                         {user.email}
                       </span>

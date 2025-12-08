@@ -144,7 +144,7 @@ export default function SchoolSpace({ user, onBack, onLogout }: SchoolSpaceProps
             {currentView === 'students' && <StudentsView />}
             {currentView === 'classes' && <ClassesView />}
             {currentView === 'payments' && <PaymentsView />}
-            {currentView === 'applications' && <ApplicationsView />}
+            {currentView === 'applications' && <ApplicationsView user={user} />}
             {currentView === 'grades' && (
               <AdminGradesManager onBack={() => setCurrentView('dashboard')} />
             )}

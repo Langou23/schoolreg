@@ -18,11 +18,13 @@ SchoolReg est une application web moderne de gestion scolaire complète, conçue
 
 ## ✨ Fonctionnalités Principales
 
-### 🔐 Authentification et Rôles
-- Système multi-rôles (Admin, Direction, Parent, Étudiant)
-- Authentification sécurisée via JWT
-- Gestion de session avec tokens
-- Mots de passe hashés avec bcrypt
+### 🔐 Authentification et Sécurité
+- **Multi-rôles**: Admin, Direction, Parent, Étudiant
+- **JWT**: Authentification sécurisée avec tokens
+- **RBAC Frontend**: Interface adaptée selon le rôle
+- **RBAC Backend**: Endpoints protégés par rôle
+- **Mots de passe**: Hashés avec bcrypt (10 rounds)
+- **Code d'inscription unique**: Système SR2024-ABC123 pour liaison sécurisée
 
 > ℹ️ **Important**  
 > L'écran de connexion est réservé au **personnel de l'école** (administrateurs et enseignants) pour gérer la plateforme.  
@@ -52,11 +54,13 @@ SchoolReg est une application web moderne de gestion scolaire complète, conçue
 - Historique détaillé par élève
 - Statistiques et KPI
 
-### 📋 Inscriptions en Ligne
+### 📋 Inscriptions et Liaison de Profil
 - **Formulaire public** accessible sans authentification
-- Téléversement de documents (acte de naissance, photo, etc.)
-- Validation administrative
-- Approbation/rejet avec notes
+- **Approbation administrative** avec workflow complet
+- **Code d'inscription unique** (ex: SR2024-ABC123) généré automatiquement
+- **Liaison sécurisée**: L'élève entre son code pour accéder à son profil
+- **Téléversement de documents**: Acte de naissance, photo, etc.
+- **Interface de modération**: Visible uniquement pour admin/direction
 
 ### 📊 Tableau de Bord
 - KPI en temps réel
@@ -69,18 +73,14 @@ SchoolReg est une application web moderne de gestion scolaire complète, conçue
 - **Framework**: React 18 + TypeScript + Vite
 - **Styling**: TailwindCSS
 - **Icônes**: Lucide React
-<<<<<<< HEAD
 - **Paiements**: Stripe SDK
-=======
--- **Paiements**: Stripe SDK
->>>>>>> 69a53cc95b2b9d2ff6fa74924811734923304d40
 
 ### Backend (Architecture Microservices)
-- **API Gateway**: Node.js + Express + http-proxy-middleware
-- **Applications Service**: Node.js + Express + Prisma (PostgreSQL)
-- **Students Service**: Python + FastAPI + SQLAlchemy (PostgreSQL)
-- **Resources Service**: Python + FastAPI + Motor (MongoDB optionnel)
-- **Auth Service**: Node.js + Express + Prisma (temporaire: monolithe)
+- **Auth Service** (Port 4001): Node.js + Express + Prisma (PostgreSQL)
+- **Applications Service** (Port 4002): Node.js + Express + Prisma (PostgreSQL)
+- **Students Service** (Port 4003): Python + FastAPI + SQLAlchemy (PostgreSQL)
+- **Payments Service** (Port 4004): Python + FastAPI + Stripe SDK (PostgreSQL)
+- **Resources Service** (Port 5001): Python + FastAPI + Motor (MongoDB)
 
 ### Bases de données
 - **PostgreSQL**: Données relationnelles (étudiants, applications, paiements)
@@ -147,16 +147,19 @@ JWT_SECRET=your_secret_key
 
 # Ports
 GATEWAY_PORT=3001
-PORT=3002
-APPLICATIONS_PORT=4003
-STUDENTS_PORT=4002
+AUTH_PORT=4001
+APPLICATIONS_PORT=4002
+STUDENTS_PORT=4003
+PAYMENTS_PORT=4004
 RESOURCES_PORT=5001
+FRONTEND_PORT=5173
 
 # Service URLs
-APPLICATIONS_SERVICE_URL=http://localhost:4003
-STUDENTS_SERVICE_URL=http://localhost:4002
+AUTH_SERVICE_URL=http://localhost:4001
+APPLICATIONS_SERVICE_URL=http://localhost:4002
+STUDENTS_SERVICE_URL=http://localhost:4003
+PAYMENTS_SERVICE_URL=http://localhost:4004
 RESOURCES_SERVICE_URL=http://localhost:5001
-MONOLITH_URL=http://localhost:3002
 
 # CORS
 CORS_ORIGIN=http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176
@@ -241,13 +244,24 @@ Le formulaire d'inscription est accessible publiquement (sans authentification) 
 
 ## 🔒 Sécurité
 
-- Authentification JWT avec tokens sécurisés
-- Mots de passe hashés avec bcrypt (10 rounds)
-- Permissions basées sur les rôles (RBAC)
-- Validation des données avec express-validator
-- CORS configuré pour les origines autorisées
-- Stockage sécurisé des documents
-- Variables d'environnement pour les secrets
+### Backend
+- **JWT**: Tokens sécurisés avec expiration
+- **RBAC**: Endpoints protégés par rôle (admin, direction, parent, student)
+- **Service JWT**: Communication sécurisée entre microservices
+- **Bcrypt**: Hash des mots de passe (10 rounds)
+- **Validation**: express-validator et Pydantic
+- **CORS**: Origines configurées et limitées
+
+### Frontend
+- **UI conditionnelle**: Actions visibles selon le rôle
+- **Liaison sécurisée**: Code d'inscription unique obligatoire
+- **Badge rôle**: Indicateur visuel dans la navbar
+- **Protection des routes**: Vérification côté client
+
+### Données
+- **PostgreSQL**: Données relationnelles chiffrées
+- **MongoDB**: Ressources pédagogiques
+- **Secrets**: Variables d'environnement uniquement
 
 ## 🚀 Démarrage Rapide
 
@@ -364,10 +378,6 @@ Ce projet est sous licence MIT.
 
 - Votre équipe de développement
 
-en considérant la partie 'notifications' comme un système de messagerie, veuillez me montrer quelles sont les étapes pour l'implémenter de manière simple et professionnelle
-l'objectif est que l'élève et le parent recoivent une des messages venant de la direction de l'école à chaque action prise en donnant des conseils sur ce qui doit être fait ensuite
-exemple (après inscription, on recoit un message sur le profil qui nous dit de payer les frais avant )
-
 ## 🙏 Remerciements
 
 - [React](https://react.dev)
@@ -384,7 +394,5 @@ Pour toute question ou problème:
 - Contactez l'équipe de support
 
 ---
-faire un plan de test unitaire pour montrer que chaque API fonctionne correctement
-vérifier chaque api si elle fonctionne correctement en appelant la fonctionnalité et renvoyer l'état de fonctionnement
 
 **Fait avec ❤️ pour l'éducation**

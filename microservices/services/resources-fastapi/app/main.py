@@ -1,9 +1,10 @@
 import os
 from pathlib import Path
 from typing import Optional
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, HTTPException, Body, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+import jwt
 try:
     from motor.motor_asyncio import AsyncIOMotorClient  # type: ignore
     _motor_ok = True
@@ -52,6 +53,31 @@ else:
 modules_coll = db.get_collection("learning_modules") if db is not None else None
 PORT = int(os.getenv("RESOURCES_PORT", "5001"))
 
+# ============================================
+# JWT AUTHENTICATION
+# ============================================
+
+JWT_SECRET = os.getenv("JWT_SECRET", "default-secret")
+
+def get_current_user(authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="No token provided")
+
+    token = authorization.split(" ")[1]
+
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        return payload
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+def require_role(*allowed_roles):
+    def wrapper(user: dict = Depends(get_current_user)):
+        if user.get("role") not in allowed_roles:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        return user
+    return wrapper
+
 
 @app.get("/health")
 async def health():
@@ -77,7 +103,12 @@ def _serialize_module(doc: dict) -> dict:
 
 
 @app.get("/modules")
-async def list_modules(subject: Optional[str] = None, level: Optional[str] = None, isPublished: Optional[bool] = None):
+async def list_modules(
+    subject: Optional[str] = None,
+    level: Optional[str] = None,
+    isPublished: Optional[bool] = None,
+    user: dict = Depends(get_current_user)  # 🔒 AJOUT: Authentification requise
+):
     if modules_coll is None:
         return []
     filt: dict = {}
@@ -93,7 +124,10 @@ async def list_modules(subject: Optional[str] = None, level: Optional[str] = Non
 
 
 @app.get("/modules/{module_id}")
-async def get_module(module_id: str):
+async def get_module(
+    module_id: str,
+    user: dict = Depends(get_current_user)  # 🔒 AJOUT: Authentification requise
+):
     if modules_coll is None or not _bson_ok:
         raise HTTPException(status_code=404, detail="Module not found")
     try:
@@ -136,7 +170,10 @@ def _validate_module_payload(payload: dict) -> dict:
 
 
 @app.post("/modules")
-async def create_module(payload: dict = Body(...)):
+async def create_module(
+    payload: dict = Body(...),
+    user: dict = Depends(require_role("admin", "direction"))  # 🔒 AJOUT: Admin/Direction uniquement
+):
     if modules_coll is None:
         raise HTTPException(status_code=503, detail="Database not available")
     data = _validate_module_payload(payload)
@@ -149,7 +186,11 @@ async def create_module(payload: dict = Body(...)):
 
 
 @app.put("/modules/{module_id}")
-async def update_module(module_id: str, payload: dict = Body(...)):
+async def update_module(
+    module_id: str,
+    payload: dict = Body(...),
+    user: dict = Depends(require_role("admin", "direction"))  # 🔒 AJOUT: Admin/Direction uniquement
+):
     if modules_coll is None or not _bson_ok:
         raise HTTPException(status_code=503, detail="Database not available")
     try:
@@ -175,7 +216,10 @@ async def update_module(module_id: str, payload: dict = Body(...)):
 
 
 @app.delete("/modules/{module_id}")
-async def delete_module(module_id: str):
+async def delete_module(
+    module_id: str,
+    user: dict = Depends(require_role("admin", "direction"))  # 🔒 AJOUT: Admin/Direction uniquement
+):
     if modules_coll is None or not _bson_ok:
         raise HTTPException(status_code=503, detail="Database not available")
     try:

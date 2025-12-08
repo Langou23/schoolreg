@@ -32,7 +32,8 @@ app.post(
     body('email').isEmail().withMessage('Valid email is required'),
     body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
     body('fullName').isLength({ min: 3 }).withMessage('Full name must be at least 3 characters'),
-    body('role').isIn(['admin', 'direction', 'parent', 'student']).withMessage('Invalid role'),
+    // N’autoriser que les rôles parent ou student lors de l’inscription publique
+    body('role').isIn(['parent', 'student']).withMessage('Invalid role'),
   ],
   async (req, res) => {
     try {
@@ -42,6 +43,11 @@ app.post(
       }
 
       const { email, password, fullName, role } = req.body;
+
+      // Bloquer l’inscription en tant qu’admin ou direction
+      if (['admin', 'direction'].includes(role)) {
+        return res.status(403).json({ error: 'Admin/Direction sign-up not allowed via this endpoint' });
+      }
 
       // Check if user exists
       const existingUser = await prisma.user.findUnique({ where: { email } });

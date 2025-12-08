@@ -86,6 +86,9 @@ class Student(Base):
     application_id = Column(String, nullable=True, unique=True)
     user_id = Column(String, nullable=True, unique=True)
     
+    # Code unique pour la liaison du profil (ex: SR2024-ABC123)
+    student_code = Column(String, nullable=True, unique=True, index=True)
+    
     # NOUVEAUX CHAMPS PROFIL COMPLET
     # Contact d'urgence (JSON)
     emergency_contact = Column(JSON, nullable=True)  # {name, phone, relationship, email}

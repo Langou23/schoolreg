@@ -2,6 +2,15 @@ import { Student } from '../types';
 
 const API_BASE_URL = 'http://localhost:4003';
 
+// Helper function to get auth headers
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('auth_token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token && { 'Authorization': `Bearer ${token}` }),
+  };
+};
+
 export class StudentLinkingApi {
   /**
    * Lier un compte utilisateur à un étudiant existant basé sur l'email parent
@@ -13,9 +22,7 @@ export class StudentLinkingApi {
   }> {
     const response = await fetch(`${API_BASE_URL}/students/link-by-email`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify({
         parentEmail,
         userId,
@@ -45,9 +52,7 @@ export class StudentLinkingApi {
   }> {
     const response = await fetch(`${API_BASE_URL}/students/link-by-student-info`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify({
         firstName,
         lastName,
@@ -86,9 +91,7 @@ export class StudentLinkingApi {
 
     const response = await fetch(`${API_BASE_URL}/students/search-for-link?${params.toString()}`, {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: getAuthHeaders(),
     });
 
     if (!response.ok) {
@@ -105,9 +108,7 @@ export class StudentLinkingApi {
   static async getByParentEmail(parentEmail: string): Promise<Student[]> {
     const response = await fetch(`${API_BASE_URL}/students/by-email/${encodeURIComponent(parentEmail)}`, {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: getAuthHeaders(),
     });
 
     if (!response.ok) {

@@ -245,6 +245,11 @@ export const ApplicationsApi = {
     const { data } = await applicationsClient.post(`/applications/${id}/reject`, { reason: notes });
     return data;
   },
+
+  delete: async (id: string) => {
+    const { data } = await applicationsClient.delete(`/applications/${id}`);
+    return data;
+  },
 };
 
 // ============================================

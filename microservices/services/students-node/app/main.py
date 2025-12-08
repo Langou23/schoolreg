@@ -1,9 +1,9 @@
 import os
 from pathlib import Path
 from typing import Optional
-from fastapi import FastAPI, Depends, HTTPException, Body, File, UploadFile
+from fastapi import FastAPI, Depends, HTTPException, Body, File, UploadFile, Header
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import desc, func
+from sqlalchemy import desc, func, or_, and_
 from uuid import uuid4
 from datetime import datetime
 import base64
@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 import stripe
+import jwt
 
 try:
     from models import Base, Student, Enrollment, Payment, Class, Notification, Gender, StudentStatus, PaymentType, PaymentStatus, EnrollmentStatus, NotificationType, NotificationStatus
@@ -39,6 +40,27 @@ def get_session_from_date(date: datetime) -> str:
         return f"Hiver {year}"
     else:  # Mai à Août
         return f"Été {year}"
+
+
+def generate_student_code(db: Session) -> str:
+    """
+    Génère un code unique pour l'élève au format: SR2024-ABC123
+    SR = SchoolReg, 2024 = année, ABC123 = code aléatoire
+    """
+    import random
+    import string
+    
+    year = datetime.now().year
+    
+    while True:
+        # Générer 6 caractères aléatoires (lettres majuscules + chiffres)
+        random_part = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        code = f"SR{year}-{random_part}"
+        
+        # Vérifier que le code n'existe pas déjà
+        existing = db.query(Student).filter(Student.student_code == code).first()
+        if not existing:
+            return code
 
 
 def load_root_env():
@@ -87,6 +109,26 @@ PORT = int(os.getenv("STUDENTS_PORT", "4003"))
 
 # Configure Stripe
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+
+# Ajoutez ensuite :
+JWT_SECRET = os.getenv("JWT_SECRET", "default-secret")
+
+def get_current_user(authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="No token provided")
+    token = authorization.split(" ")[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        return payload
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+def require_role(*roles):
+    def dependency(current_user: dict = Depends(get_current_user)):
+        if current_user.get("role") not in roles:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        return current_user
+    return dependency
 
 
 def get_db():
@@ -208,6 +250,7 @@ def serialize_student(s: Student, include_relations: bool = True) -> dict:
         "registrationDeadline": s.registration_deadline.isoformat() if s.registration_deadline else None,
         "applicationId": s.application_id,
         "userId": s.user_id,
+        "studentCode": s.student_code,  # Code unique pour la liaison
         
         # NOUVEAUX CHAMPS PROFIL COMPLET
         "emergencyContact": s.emergency_contact,
@@ -266,47 +309,60 @@ async def list_students(
     status: Optional[str] = None,
     program: Optional[str] = None,
     withoutActiveClass: Optional[bool] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user)  # 🔒 AJOUT POUR EXIGER L’AUTHENTIFICATION
 ):
     try:
         query = db.query(Student).options(
             joinedload(Student.enrollments).joinedload(Enrollment.class_),
             joinedload(Student.payments)
         )
+
         if parentEmail:
             query = query.filter(Student.parent_email == parentEmail)
+
         if status:
             try:
                 from models import StudentStatus as _SS
             except Exception:
                 from .models import StudentStatus as _SS
+
             enum_status = _SS(status) if status else None
             if enum_status:
                 query = query.filter(Student.status == enum_status)
+
         if program:
             query = query.filter(Student.program == program)
-        
+
         students = query.order_by(Student.created_at.desc()).all()
-        
-        # Filtrer les élèves sans classe active si demandé
+
+        # 🔎 Filtrer les élèves sans classe active si demandé
         if withoutActiveClass:
             students_without_class = []
             for student in students:
                 has_active_enrollment = any(
-                    enrollment.status == EnrollmentStatus.active 
+                    enrollment.status == EnrollmentStatus.active
                     for enrollment in student.enrollments
                 )
                 if not has_active_enrollment:
                     students_without_class.append(student)
+
             students = students_without_class
-        
+
+        # Retour des données sérialisées
         return [serialize_student(s, include_relations=True) for s in students]
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch students: {str(e)}")
 
 
+
 @app.get("/students/{student_id}")
-async def get_student(student_id: str, db: Session = Depends(get_db)):
+async def get_student(
+    student_id: str,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user)
+):
     try:
         student = db.query(Student).options(
             joinedload(Student.enrollments).joinedload(Enrollment.class_),
@@ -327,7 +383,8 @@ async def list_enrollments(
     studentId: Optional[str] = None,
     status: Optional[str] = "active",  # Par défaut, on retourne uniquement les inscriptions actives
     includeAll: Optional[bool] = False,  # Pour récupérer toutes les inscriptions si nécessaire
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user)
 ):
     try:
         query = db.query(Enrollment).options(
@@ -358,7 +415,11 @@ async def list_enrollments(
 
 
 @app.get("/payments")
-async def list_payments(studentId: Optional[str] = None, db: Session = Depends(get_db)):
+async def list_payments(
+    studentId: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user)
+):
     try:
         query = db.query(Payment).options(joinedload(Payment.student))
         if studentId:
@@ -370,7 +431,7 @@ async def list_payments(studentId: Optional[str] = None, db: Session = Depends(g
 
 
 @app.post("/students")
-async def create_student(payload: dict = Body(...), db: Session = Depends(get_db)):
+async def create_student(payload: dict = Body(...), db: Session = Depends(get_db), user: dict = Depends(require_role("admin","direction","system"))):
     try:
         required = ['firstName', 'lastName', 'dateOfBirth', 'gender', 'address', 'parentName', 'parentPhone', 'program', 'session', 'secondaryLevel', 'tuitionAmount']
         for field in required:
@@ -398,6 +459,7 @@ async def create_student(payload: dict = Body(...), db: Session = Depends(get_db
             'enrollment_date': datetime.utcnow(),
             'application_id': payload.get('applicationId'),
             'user_id': payload.get('userId'),
+            'student_code': generate_student_code(db),  # Génération automatique du code unique
             
             # NOUVEAUX CHAMPS JSON du profil complet
             'emergency_contact': payload.get('emergencyContact'),
@@ -425,7 +487,7 @@ async def create_student(payload: dict = Body(...), db: Session = Depends(get_db
 
 
 @app.put("/students/{student_id}")
-async def update_student(student_id: str, payload: dict = Body(...), db: Session = Depends(get_db)):
+async def update_student(student_id: str, payload: dict = Body(...), db: Session = Depends(get_db), user: dict = Depends(require_role("admin","direction","system"))):
     try:
         student = db.query(Student).filter(Student.id == student_id).first()
         if not student:
@@ -559,7 +621,7 @@ async def update_student(student_id: str, payload: dict = Body(...), db: Session
 
 
 @app.delete("/students/{student_id}")
-async def delete_student(student_id: str, db: Session = Depends(get_db)):
+async def delete_student(student_id: str, db: Session = Depends(get_db), user: dict = Depends(require_role("admin","direction","system"))):
     try:
         student = db.query(Student).filter(Student.id == student_id).first()
         if not student:
@@ -575,7 +637,7 @@ async def delete_student(student_id: str, db: Session = Depends(get_db)):
 
 
 @app.post("/enrollments")
-async def create_enrollment(payload: dict = Body(...), db: Session = Depends(get_db)):
+async def create_enrollment(payload: dict = Body(...), db: Session = Depends(get_db), user: dict = Depends(require_role("admin","direction","system"))):
     try:
         if 'studentId' not in payload or 'classId' not in payload:
             raise HTTPException(status_code=400, detail="Missing studentId or classId")
@@ -629,7 +691,7 @@ async def create_enrollment(payload: dict = Body(...), db: Session = Depends(get
 
 
 @app.put("/enrollments/{enrollment_id}")
-async def update_enrollment(enrollment_id: str, payload: dict = Body(...), db: Session = Depends(get_db)):
+async def update_enrollment(enrollment_id: str, payload: dict = Body(...), db: Session = Depends(get_db), user: dict = Depends(require_role("admin","direction","system"))):
     print(f"📝 Requête de mise à jour d'inscription reçue")
     print(f"   ID inscription: {enrollment_id}")
     print(f"   Payload: {payload}")
@@ -683,7 +745,7 @@ async def update_enrollment(enrollment_id: str, payload: dict = Body(...), db: S
 
 
 @app.post("/payments")
-async def create_payment(payload: dict = Body(...), db: Session = Depends(get_db)):
+async def create_payment(payload: dict = Body(...), db: Session = Depends(get_db), user: dict = Depends(require_role("admin","direction","system"))):
     try:
         required = ['studentId', 'amount', 'paymentType', 'paymentMethod']
         for field in required:
@@ -771,7 +833,7 @@ async def create_payment(payload: dict = Body(...), db: Session = Depends(get_db
 
 
 @app.put("/payments/{payment_id}")
-async def update_payment(payment_id: str, payload: dict = Body(...), db: Session = Depends(get_db)):
+async def update_payment(payment_id: str, payload: dict = Body(...), db: Session = Depends(get_db), user: dict = Depends(require_role("admin","direction","system"))):
     """
     Mettre à jour un paiement existant
     """
@@ -1023,7 +1085,10 @@ async def stripe_webhook(payload: dict = Body(...), db: Session = Depends(get_db
 
 
 @app.get("/dashboard/stats")
-async def get_dashboard_stats(db: Session = Depends(get_db)):
+async def get_dashboard_stats(
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user)
+):
     """Get statistics for admin dashboard"""
     try:
         from sqlalchemy import func
@@ -1118,7 +1183,11 @@ async def link_student_by_parent_email(payload: dict = Body(...), db: Session = 
 
 
 @app.get("/students/by-email/{parent_email}")
-async def get_student_by_parent_email(parent_email: str, db: Session = Depends(get_db)):
+async def get_student_by_parent_email(
+    parent_email: str,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user)
+):
     """
     Récupérer les élèves associés à un email parent pour la liaison automatique.
     """
@@ -1184,26 +1253,78 @@ async def search_students_for_link(
     firstName: Optional[str] = None,
     lastName: Optional[str] = None,
     dateOfBirth: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user)
 ):
     """
     Rechercher les élèves non liés pour permettre la liaison par l'élève lui-même.
+    Recherche flexible qui vérifie aussi les inversions de nom/prénom.
     """
     try:
+        print(f"🔍 RECHERCHE ÉLÈVE - Paramètres reçus:")
+        print(f"   firstName: {firstName}")
+        print(f"   lastName: {lastName}")
+        print(f"   dateOfBirth: {dateOfBirth}")
+        
+        # D'abord, afficher tous les élèves non liés pour debug
+        all_unlinked = db.query(Student).filter(Student.user_id.is_(None)).all()
+        print(f"📊 Total élèves non liés dans la BD: {len(all_unlinked)}")
+        for s in all_unlinked[:5]:  # Afficher les 5 premiers
+            print(f"   - {s.first_name} {s.last_name} (né le {s.date_of_birth})")
+        
         query = db.query(Student).filter(Student.user_id.is_(None))
         
-        if firstName:
-            query = query.filter(Student.first_name.ilike(f"%{firstName}%"))
-        if lastName:
-            query = query.filter(Student.last_name.ilike(f"%{lastName}%"))
+        # Recherche flexible : prénom OU nom peut correspondre à l'un ou l'autre champ
+        if firstName and lastName:
+            # Essayer prénom/nom et nom/prénom
+            query = query.filter(
+                or_(
+                    and_(
+                        Student.first_name.ilike(f"%{firstName}%"),
+                        Student.last_name.ilike(f"%{lastName}%")
+                    ),
+                    and_(
+                        Student.first_name.ilike(f"%{lastName}%"),
+                        Student.last_name.ilike(f"%{firstName}%")
+                    )
+                )
+            )
+        elif firstName:
+            # Chercher dans prénom OU nom
+            query = query.filter(
+                or_(
+                    Student.first_name.ilike(f"%{firstName}%"),
+                    Student.last_name.ilike(f"%{firstName}%")
+                )
+            )
+        elif lastName:
+            # Chercher dans prénom OU nom
+            query = query.filter(
+                or_(
+                    Student.first_name.ilike(f"%{lastName}%"),
+                    Student.last_name.ilike(f"%{lastName}%")
+                )
+            )
+        
+        # Date de naissance (optionnelle pour plus de flexibilité)
         if dateOfBirth:
             try:
                 dob = datetime.fromisoformat(dateOfBirth.replace('Z', '+00:00'))
             except:
-                dob = datetime.strptime(dateOfBirth, '%Y-%m-%d')
-            query = query.filter(Student.date_of_birth == dob.date())
+                try:
+                    dob = datetime.strptime(dateOfBirth, '%Y-%m-%d')
+                except:
+                    # Si le format est invalide, ignorer la date
+                    dob = None
+            
+            if dob:
+                query = query.filter(Student.date_of_birth == dob.date())
         
         students = query.all()
+        
+        print(f"✅ Résultats trouvés: {len(students)}")
+        for s in students:
+            print(f"   - {s.first_name} {s.last_name} (ID: {s.id})")
         
         # Retourner seulement les informations nécessaires pour l'identification
         return [{
@@ -1217,6 +1338,160 @@ async def search_students_for_link(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to search students: {str(e)}")
+
+
+@app.post("/students/link-by-code")
+async def link_student_by_code(
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user)
+):
+    """
+    Lier un profil élève à un compte utilisateur via le code d'inscription unique.
+    C'est la méthode recommandée pour éviter les erreurs d'identité.
+    """
+    try:
+        student_code = payload.get("studentCode", "").strip().upper()
+        user_id = user.get("userId") or user.get("id")
+        
+        if not student_code:
+            raise HTTPException(status_code=400, detail="Student code is required")
+        
+        print(f"🔗 LIAISON PAR CODE:")
+        print(f"   Code d'inscription: {student_code}")
+        print(f"   User ID: {user_id}")
+        
+        # Chercher l'élève avec ce code
+        student = db.query(Student).filter(Student.student_code == student_code).first()
+        
+        if not student:
+            print(f"❌ Code '{student_code}' introuvable")
+            raise HTTPException(status_code=404, detail="Code d'inscription invalide. Vérifiez auprès de l'administration.")
+        
+        # Vérifier que le profil n'est pas déjà lié
+        if student.user_id and student.user_id != user_id:
+            print(f"❌ Profil déjà lié à un autre compte")
+            raise HTTPException(status_code=409, detail="Ce profil est déjà lié à un autre compte.")
+        
+        # Lier le profil
+        student.user_id = user_id
+        db.commit()
+        
+        print(f"✅ Profil lié: {student.first_name} {student.last_name} (Code: {student_code})")
+        
+        return {
+            "success": True,
+            "message": f"Profil lié avec succès !",
+            "student": serialize_student(student, include_relations=True)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Erreur: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to link student: {str(e)}")
+
+
+@app.get("/students/find-by-current-user")
+async def find_student_by_current_user(
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user)
+):
+    """
+    Trouver le profil élève correspondant à l'utilisateur connecté.
+    Cherche par:
+    1. user_id déjà lié
+    2. parent_email correspondant à user.email
+    3. email de l'utilisateur (si c'est un élève)
+    """
+    try:
+        user_id = user.get("userId") or user.get("id")
+        user_email = user.get("email", "").lower()
+        
+        print(f"🔍 Recherche profil pour utilisateur:")
+        print(f"   user_id: {user_id}")
+        print(f"   user_email: {user_email}")
+        
+        # 1. Chercher par user_id déjà lié
+        student = db.query(Student).filter(Student.user_id == user_id).first()
+        
+        if student:
+            print(f"✅ Trouvé par user_id: {student.first_name} {student.last_name}")
+            return serialize_student(student, include_relations=True)
+        
+        # 2. Chercher par parent_email
+        if user_email:
+            student = db.query(Student).filter(
+                Student.parent_email.ilike(user_email),
+                Student.user_id.is_(None)  # Pas encore lié
+            ).first()
+            
+            if student:
+                print(f"✅ Trouvé par parent_email: {student.first_name} {student.last_name}")
+                # Auto-lier le profil
+                student.user_id = user_id
+                db.commit()
+                return serialize_student(student, include_relations=True)
+        
+        print("❌ Aucun profil trouvé")
+        raise HTTPException(status_code=404, detail="No student profile found for current user")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to find student: {str(e)}")
+
+
+@app.post("/admin/generate-student-codes")
+async def generate_codes_for_existing_students(
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("admin", "direction"))
+):
+    """
+    Génère des codes d'inscription uniques pour tous les élèves qui n'en ont pas encore.
+    Endpoint admin uniquement.
+    """
+    try:
+        # Trouver tous les élèves sans code
+        students_without_code = db.query(Student).filter(Student.student_code.is_(None)).all()
+        
+        if not students_without_code:
+            return {
+                "success": True,
+                "message": "Tous les élèves ont déjà un code d'inscription",
+                "generated": 0
+            }
+        
+        print(f"📋 {len(students_without_code)} élève(s) sans code trouvé(s)")
+        
+        generated_codes = []
+        
+        # Générer et assigner des codes
+        for student in students_without_code:
+            code = generate_student_code(db)
+            student.student_code = code
+            generated_codes.append({
+                "studentId": student.id,
+                "name": f"{student.first_name} {student.last_name}",
+                "code": code
+            })
+            print(f"✅ {student.first_name} {student.last_name} → {code}")
+        
+        # Sauvegarder toutes les modifications
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"{len(generated_codes)} codes générés avec succès",
+            "generated": len(generated_codes),
+            "codes": generated_codes
+        }
+        
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Erreur: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate codes: {str(e)}")
 
 
 @app.post("/students/{student_id}/photo")
@@ -1343,7 +1618,10 @@ async def update_student_grades(
 # ============================================
 
 @app.get("/admin/dashboard/stats")
-async def get_admin_dashboard_stats(db: Session = Depends(get_db)):
+async def get_admin_dashboard_stats(
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("admin", "direction"))
+):
     """
     Endpoint optimisé pour récupérer rapidement les statistiques du dashboard admin
     """
@@ -1405,7 +1683,10 @@ async def get_admin_dashboard_stats(db: Session = Depends(get_db)):
 
 
 @app.get("/admin/classes")
-async def list_classes_admin(db: Session = Depends(get_db)):
+async def list_classes_admin(
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user)
+):
     """
     Endpoint pour récupérer les classes avec le nombre d'inscriptions actives
     """
@@ -1469,7 +1750,8 @@ async def update_payment_sessions(db: Session = Depends(get_db)):
 async def get_students_count(
     status: Optional[str] = None,
     withoutActiveClass: Optional[bool] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("admin", "direction"))
 ):
     """
     Endpoint optimisé pour compter les étudiants sans charger toutes leurs données
@@ -1663,7 +1945,10 @@ async def admin_cleanup_enrollments(db: Session = Depends(get_db)):
 
 
 @app.get("/admin/maintenance/enrollment-stats")
-async def admin_enrollment_stats(db: Session = Depends(get_db)):
+async def admin_enrollment_stats(
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("admin", "direction"))
+):
     """
     Endpoint admin pour obtenir les statistiques des inscriptions
     """

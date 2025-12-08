@@ -37,11 +37,32 @@ export default function StudentOwnDashboard({ user, onBack }: StudentOwnDashboar
     try {
       let studentProfile: Student | null = null;
 
-      // Si l'utilisateur a un studentId dans son profil
+      // 1. Si l'utilisateur a un studentId dans son profil
       if (user.studentId) {
         studentProfile = await StudentsApi.getById(user.studentId);
-      } else {
-        // Chercher par user_id dans les profils élèves
+      } 
+      
+      // 2. Essayer de trouver par l'endpoint intelligent
+      if (!studentProfile) {
+        try {
+          const token = localStorage.getItem('auth_token');
+          const response = await fetch('http://localhost:4003/students/find-by-current-user', {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+          
+          if (response.ok) {
+            studentProfile = await response.json();
+            console.log('✅ Profil trouvé automatiquement:', studentProfile);
+          }
+        } catch (err) {
+          console.log('ℹ️ Recherche automatique échouée, passage à la recherche manuelle');
+        }
+      }
+      
+      // 3. Chercher par user_id dans les profils élèves
+      if (!studentProfile) {
         const allStudents = await StudentsApi.list();
         studentProfile = allStudents.find((s: Student) => s.userId === user.id) || null;
       }
@@ -68,8 +89,15 @@ export default function StudentOwnDashboard({ user, onBack }: StudentOwnDashboar
         // Aucun profil élève lié trouvé
         setShowLinkingInterface(true);
       }
-    } catch (error) {
-      console.error('❌ Erreur lors du chargement des données:', error);
+    } catch (error: any) {
+      console.error('❌ ERREUR lors du chargement des données (StudentOwnDashboard):');
+      console.error('Type:', error.constructor.name);
+      console.error('Message:', error.message);
+      console.error('Response:', error.response?.status, error.response?.data);
+      console.error('Stack:', error.stack);
+      
+      // Afficher une alerte pour l'utilisateur
+      alert(`Erreur de chargement du profil élève: ${error.message || 'Erreur inconnue'}. Vérifiez la console.`);
     } finally {
       setLoading(false);
       setRefreshing(false);

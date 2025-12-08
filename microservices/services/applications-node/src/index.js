@@ -9,6 +9,7 @@ import axios from 'axios';
 import { PrismaClient, Gender, ApplicationStatus, DocumentType } from '@prisma/client';
 import { body, validationResult } from 'express-validator';
 import { fileURLToPath } from 'url';
+import jwt from 'jsonwebtoken';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,6 +21,37 @@ const prisma = new PrismaClient();
 const app = express();
 const PORT = process.env.APPLICATIONS_PORT || 4003;
 const NOTIFICATIONS_URL = process.env.NOTIFICATIONS_SERVICE_URL || 'http://localhost:4006';
+const SERVICE_JWT = process.env.SERVICE_JWT;
+const JWT_SECRET = process.env.JWT_SECRET || 'default-secret';
+
+// JWT Authentication Middleware
+function getCurrentUser(req, res) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+  
+  const token = authHeader.substring(7);
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch (err) {
+    return null;
+  }
+}
+
+function requireRole(...allowedRoles) {
+  return (req, res, next) => {
+    const user = getCurrentUser(req, res);
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    if (!allowedRoles.includes(user.role)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    req.user = user;
+    next();
+  };
+}
 
 // Helper function to send notification
 async function sendNotification(notificationData) {
@@ -244,7 +276,10 @@ app.post(
 );
 
 // Approve application
-app.post('/applications/:id/approve', async (req, res) => {
+app.post(
+  '/applications/:id/approve',
+  requireRole('admin', 'direction'),
+  async (req, res) => {
   try {
     const id = req.params.id;
     const application = await prisma.application.findUnique({ where: { id } });
@@ -333,6 +368,52 @@ app.post('/applications/:id/approve', async (req, res) => {
       return { student, application: updatedApp, parentUser, studentUser };
     });
 
+    // Créer/Miroir le profil dans students-node (FastAPI) et lier le compte utilisateur
+    try {
+      const studentsServiceUrl = process.env.STUDENTS_SERVICE_URL || 'http://localhost:4003';
+      // Mapper les champs requis par le service students-node
+      const studentCreatePayload = {
+        firstName: application.firstName,
+        lastName: application.lastName,
+        dateOfBirth: new Date(application.dateOfBirth).toISOString().split('T')[0],
+        gender: application.gender,
+        address: application.address,
+        parentName: application.parentName,
+        parentPhone: application.parentPhone,
+        parentEmail: application.parentEmail,
+        program: application.program,
+        session: application.session,
+        secondaryLevel: application.secondaryLevel,
+        status: 'active',
+        tuitionAmount: (typeof tuitionAmount === 'number' ? tuitionAmount : 0),
+        applicationId: application.id,
+        userId: result.studentUser.id,
+      };
+
+      // Créer l'élève dans students-node
+      const headers = { 'Content-Type': 'application/json' };
+      if (SERVICE_JWT) {
+        headers['Authorization'] = `Bearer ${SERVICE_JWT}`;
+      }
+      const { data: studentsNodeStudent } = await axios.post(
+        `${studentsServiceUrl}/students`,
+        studentCreatePayload,
+        { headers }
+      );
+
+      // Mettre à jour le user pour pointer vers l'ID du students-node (utilisé par le frontend)
+      await prisma.user.update({
+        where: { id: result.studentUser.id },
+        data: { studentId: studentsNodeStudent.id },
+      });
+
+      // Remplacer dans l'objet de réponse pour cohérence front
+      result.studentUser.studentId = studentsNodeStudent.id;
+    } catch (linkErr) {
+      console.error('Failed to mirror/link student to students-node:', linkErr?.message || linkErr);
+      // Ne pas bloquer l'approbation; le parent/élève pourra utiliser l'interface de liaison manuelle si nécessaire
+    }
+
     // Send notifications to parent and student
     if (result.parentUser) {
       await sendNotification({
@@ -356,10 +437,15 @@ app.post('/applications/:id/approve', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: 'Failed to approve application' });
   }
-});
+  }
+);
 
 // Reject application
-app.post('/applications/:id/reject', [body('reason').optional().isString().isLength({ min: 3 })], async (req, res) => {
+app.post(
+  '/applications/:id/reject',
+  requireRole('admin', 'direction'),
+  [body('reason').optional().isString().isLength({ min: 3 })],
+  async (req, res) => {
   try {
     const application = await prisma.application.update({
       where: { id: req.params.id },
@@ -383,7 +469,42 @@ app.post('/applications/:id/reject', [body('reason').optional().isString().isLen
   } catch (error) {
     res.status(500).json({ error: 'Failed to reject application' });
   }
-});
+  }
+);
+
+// DELETE /applications/:id - Supprimer une candidature (admin/direction uniquement)
+app.delete(
+  '/applications/:id',
+  requireRole('admin', 'direction'),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      // Supprimer directement la candidature (Prisma gérera la cascade)
+      const application = await prisma.application.delete({
+        where: { id }
+      });
+
+      res.json({ 
+        success: true, 
+        message: 'Application deleted successfully',
+        id: application.id
+      });
+    } catch (error) {
+      console.error('Error deleting application:', error);
+      
+      // Si l'application n'existe pas
+      if (error.code === 'P2025') {
+        return res.status(404).json({ error: 'Application not found' });
+      }
+      
+      res.status(500).json({ 
+        error: 'Failed to delete application',
+        details: error.message 
+      });
+    }
+  }
+);
 
 app.listen(PORT, () => {
   console.log(`applications-node listening on http://localhost:${PORT}`);

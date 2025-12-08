@@ -37,11 +37,28 @@ export default function UserDashboard({ user, onBack }: UserDashboardProps) {
       setLoading(true);
     }
     try {
+      console.log('🔑 Token présent:', !!localStorage.getItem('auth_token'));
+      console.log('👤 Utilisateur:', user.email, '- Rôle:', user.role);
+      
+      console.log('📡 Appel API: StudentsApi.list()...');
       const allStudents = await StudentsApi.list();
+      console.log('✅ StudentsApi.list() réussi:', allStudents.length, 'étudiants');
+      
+      console.log('📡 Appel API: PaymentsApi.list()...');
       const allPayments = await PaymentsApi.list();
+      console.log('✅ PaymentsApi.list() réussi:', allPayments.length, 'paiements');
+      
+      console.log('📡 Appel API: EnrollmentsApi.list()...');
       const allEnrollments = await EnrollmentsApi.list();
+      console.log('✅ EnrollmentsApi.list() réussi:', allEnrollments.length, 'inscriptions');
+      
+      console.log('📡 Appel API: ClassesApi.list()...');
       const allClasses = await ClassesApi.list();
+      console.log('✅ ClassesApi.list() réussi:', allClasses.length, 'classes');
+      
+      console.log('📡 Appel API: ApplicationsApi.list()...');
       const allApplications = await ApplicationsApi.list();
+      console.log('✅ ApplicationsApi.list() réussi:', allApplications.length, 'applications');
 
       console.log('📊 Total étudiants dans la BD:', allStudents.length);
       console.log('📧 Email utilisateur connecté:', user.email);
@@ -118,8 +135,15 @@ export default function UserDashboard({ user, onBack }: UserDashboardProps) {
           }
         }
       }
-    } catch (error) {
-      console.error('❌ Erreur lors du chargement des données:', error);
+    } catch (error: any) {
+      console.error('❌ ERREUR lors du chargement des données:');
+      console.error('Type:', error.constructor.name);
+      console.error('Message:', error.message);
+      console.error('Response:', error.response?.status, error.response?.data);
+      console.error('Stack:', error.stack);
+      
+      // Afficher une alerte pour l'utilisateur
+      alert(`Erreur de chargement: ${error.message || 'Erreur inconnue'}. Vérifiez la console pour plus de détails.`);
     } finally {
       setLoading(false);
       setRefreshing(false);

@@ -26,15 +26,29 @@ env_path = Path(__file__).parent.parent / '.env'
 load_dotenv(env_path, override=True)
 
 # Configuration Stripe
-stripe_key = os.getenv("STRIPE_SECRET_KEY")
-if not stripe_key:
-    print(f"⚠️ ATTENTION: Clé Stripe manquante dans .env!")
-    print(f"Fichier .env: {env_path}")
-    # Utiliser une clé de test factice en développement
-    stripe_key = "sk_test_CHANGE_ME_IN_PRODUCTION"
-    
-stripe.api_key = stripe_key
-print(f"✅ Stripe configuré avec clé: {stripe_key[:7]}...***")
+STRIPE_SIMULATION_MODE = os.getenv("STRIPE_SIMULATION_MODE", "false").lower() == "true"
+
+if STRIPE_SIMULATION_MODE:
+    print(f"🧪 MODE SIMULATION STRIPE ACTIVÉ - Aucune vraie clé nécessaire")
+    print(f"   Les paiements seront simulés localement")
+    stripe.api_key = "sk_test_SIMULATION_MODE"  # Clé factice pour le mode simulation
+else:
+    stripe_key = os.getenv("STRIPE_SECRET_KEY")
+    if not stripe_key or "YOUR_SECRET_KEY" in stripe_key:
+        print(f"⚠️ ATTENTION: Clé Stripe manquante ou invalide dans .env!")
+        print(f"Fichier .env: {env_path}")
+        raise ValueError("Clé Stripe invalide. Activez STRIPE_SIMULATION_MODE=true ou ajoutez une vraie clé.")
+        
+    stripe.api_key = stripe_key
+    print(f"✅ Stripe configuré avec clé: {stripe_key[:7]}...***")
+
+# Configuration JWT Service pour appels inter-services
+SERVICE_JWT = os.getenv("SERVICE_JWT")
+if not SERVICE_JWT:
+    print(f"⚠️ ATTENTION: SERVICE_JWT manquant dans .env!")
+    print(f"   Les appels à students-node échoueront sans authentification.")
+else:
+    print(f"✅ SERVICE_JWT configuré pour auth inter-services")
 
 
 # Créer les tables
@@ -69,6 +83,19 @@ async def create_payment_intent(
     (utilisé avec Stripe Elements dans le frontend)
     """
     try:
+        # Mode simulation: réponse simulée
+        if STRIPE_SIMULATION_MODE:
+            simulated_payment_intent_id = f"pi_simulated_{uuid.uuid4().hex[:24]}"
+            simulated_client_secret = f"{simulated_payment_intent_id}_secret_{uuid.uuid4().hex[:10]}"
+            
+            return PaymentIntentResponse(
+                payment_intent_id=simulated_payment_intent_id,
+                client_secret=simulated_client_secret,
+                amount=payment_data.amount,
+                currency=payment_data.currency
+            )
+        
+        # Mode production: vraie API Stripe
         # Créer le Payment Intent dans Stripe
         intent = stripe.PaymentIntent.create(
             amount=int(payment_data.amount * 100),  # Stripe utilise les centimes
@@ -136,10 +163,12 @@ async def confirm_checkout_session(session_id: str, db: Session = Depends(get_db
                 "transactionId": session.get('payment_intent'),
                 "notes": f"Stripe Checkout session {session_id} (confirm endpoint)"
             }
+            headers = {"Authorization": f"Bearer {SERVICE_JWT}"} if SERVICE_JWT else {}
             async with httpx.AsyncClient() as client:
                 await client.post(
                     "http://localhost:4003/payments",
                     json=payload_students,
+                    headers=headers,
                     timeout=5.0,
                 )
 
@@ -323,10 +352,12 @@ async def stripe_webhook(
                         "transactionId": payment_intent.get('id'),
                         "notes": "Stripe PaymentIntent confirmé via webhook"
                     }
+                    headers = {"Authorization": f"Bearer {SERVICE_JWT}"} if SERVICE_JWT else {}
                     async with httpx.AsyncClient() as client:
                         await client.post(
                             "http://localhost:4003/payments",
                             json=payload_students,
+                            headers=headers,
                             timeout=5.0,
                         )
             except Exception as notify_err:
