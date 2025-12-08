@@ -153,6 +153,7 @@ export default function StudentForm({ onClose, onSuccess, student }: StudentForm
         academicTransferReason,
         academicSpecialNeeds,
         academicLanguages,
+        tuitionPaid,
         preferencesGoals,
         preferencesInterests,
         preferencesExtracurriculars,

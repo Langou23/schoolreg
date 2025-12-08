@@ -69,7 +69,11 @@ SchoolReg est une application web moderne de gestion scolaire complète, conçue
 - **Framework**: React 18 + TypeScript + Vite
 - **Styling**: TailwindCSS
 - **Icônes**: Lucide React
+<<<<<<< HEAD
 - **Paiements**: Stripe SDK
+=======
+-- **Paiements**: Stripe SDK
+>>>>>>> 69a53cc95b2b9d2ff6fa74924811734923304d40
 
 ### Backend (Architecture Microservices)
 - **API Gateway**: Node.js + Express + http-proxy-middleware
@@ -367,10 +371,10 @@ exemple (après inscription, on recoit un message sur le profil qui nous dit de 
 ## 🙏 Remerciements
 
 - [React](https://react.dev)
-- [Supabase](https://supabase.com)
+_ [Stripe](https://stripe.com)
 - [TailwindCSS](https://tailwindcss.com)
 - [Lucide Icons](https://lucide.dev)
-- [PayPal](https://developer.paypal.com)
+- [PostgreSQL](https://postgresql.org)
 
 ## 📞 Support
 

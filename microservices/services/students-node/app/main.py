@@ -393,8 +393,8 @@ async def create_student(payload: dict = Body(...), db: Session = Depends(get_db
             'secondary_level': payload['secondaryLevel'],
             'status': (StudentStatus(payload.get('status', 'pending')) if isinstance(payload.get('status', 'pending'), str) else payload.get('status', StudentStatus.pending)),
             'tuition_amount': float(payload['tuitionAmount']),
-            # Supporter valeur vide pour tuitionPaid
-            'tuition_paid': float(payload.get('tuitionPaid') or 0),
+            # Ignorer toute tentative de définir tuitionPaid côté payload; ce champ est dérivé des paiements
+            'tuition_paid': 0.0,
             'enrollment_date': datetime.utcnow(),
             'application_id': payload.get('applicationId'),
             'user_id': payload.get('userId'),
@@ -437,6 +437,8 @@ async def update_student(student_id: str, payload: dict = Body(...), db: Session
             'tuitionPaid': student.tuition_paid,
             'tuitionAmount': student.tuition_amount  # Nécessaire pour calculer le solde correctement
         }
+        # Conserver le montant payé avant toute modification (protection)
+        original_paid = student.tuition_paid or 0.0
         
         allowed_fields = {'firstName': 'first_name', 'lastName': 'last_name', 'address': 'address', 
                          'parentName': 'parent_name', 'parentPhone': 'parent_phone', 'parentEmail': 'parent_email',
@@ -450,6 +452,10 @@ async def update_student(student_id: str, payload: dict = Body(...), db: Session
         changes = []
         # Champs JSON nécessitant une gestion spéciale
         json_fields = {'emergencyContact', 'medicalInfo', 'academicHistory', 'preferences'}
+
+        # Ne jamais permettre la modification directe de tuitionPaid via update_student
+        if 'tuitionPaid' in payload:
+            payload.pop('tuitionPaid', None)
         
         for key, db_key in allowed_fields.items():
             if key in payload:
@@ -457,7 +463,7 @@ async def update_student(student_id: str, payload: dict = Body(...), db: Session
                 new_val = payload[key]
                 
                 # Normaliser les champs numériques
-                if db_key in ('tuition_paid', 'tuition_amount'):
+                if db_key in ('tuition_amount',):
                     new_val = float(new_val) if (new_val is not None and new_val != '') else 0.0
                 
                 # Gestion spéciale pour les champs JSON
@@ -490,6 +496,8 @@ async def update_student(student_id: str, payload: dict = Body(...), db: Session
                 print(f"Erreur conversion profileCompletionDate: {e}")
         
         student.updated_at = datetime.utcnow()
+        # Forcer la conservation du montant payé (aucune mise à jour directe via cet endpoint)
+        student.tuition_paid = original_paid
         
         # Si tuitionAmount a augmenté, créer un paiement pending pour le solde
         if 'tuitionAmount' in payload:

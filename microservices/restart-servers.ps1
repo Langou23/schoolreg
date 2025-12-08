@@ -56,22 +56,33 @@ function Start-Servers {
         Write-Host "   [WARN] auth-node non trouve" -ForegroundColor Yellow
     }
     
-    # 2. Demarrer students-node (port 4003)
-    Write-Host "   [2] Demarrage de students-node (port 4003)..." -ForegroundColor Cyan
+    # 2. Demarrer applications-node (port 4002)
+    Write-Host "   [2] Demarrage de applications-node (port 4002)..." -ForegroundColor Cyan
+    $applicationsPath = Join-Path $projectRoot "services\applications-node"
+    if (Test-Path $applicationsPath) {
+        Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$applicationsPath'; npm run dev" -WindowStyle Normal
+        Write-Host "   [OK] applications-node demarre" -ForegroundColor Green
+        Start-Sleep -Seconds 2
+    } else {
+        Write-Host "   [WARN] applications-node non trouve" -ForegroundColor Yellow
+    }
+    
+    # 3. Demarrer students-node (port 4003)
+    Write-Host "   [3] Demarrage de students-node (port 4003)..." -ForegroundColor Cyan
     $studentsPath = Join-Path $projectRoot "services\students-node"
     Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$studentsPath'; python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 4003" -WindowStyle Normal
     Write-Host "   [OK] students-node demarre" -ForegroundColor Green
     Start-Sleep -Seconds 2
     
-    # 3. Demarrer payments-fastapi (port 4004)
-    Write-Host "   [3] Demarrage de payments-fastapi (port 4004)..." -ForegroundColor Cyan
+    # 4. Demarrer payments-fastapi (port 4004)
+    Write-Host "   [4] Demarrage de payments-fastapi (port 4004)..." -ForegroundColor Cyan
     $paymentsPath = Join-Path $projectRoot "services\payments-fastapi"
     Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$paymentsPath'; python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 4004" -WindowStyle Normal
     Write-Host "   [OK] payments-fastapi demarre" -ForegroundColor Green
     Start-Sleep -Seconds 2
     
-    # 4. Demarrer notifications-node (port 4005)
-    Write-Host "   [4] Demarrage de notifications-node (port 4005)..." -ForegroundColor Cyan
+    # 5. Demarrer notifications-node (port 4005)
+    Write-Host "   [5] Demarrage de notifications-node (port 4005)..." -ForegroundColor Cyan
     $notificationsPath = Join-Path $projectRoot "services\notifications-node"
     if (Test-Path $notificationsPath) {
         Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$notificationsPath'; npm run dev" -WindowStyle Normal
@@ -81,8 +92,19 @@ function Start-Servers {
         Write-Host "   [WARN] notifications-node non trouve" -ForegroundColor Yellow
     }
     
-    # 5. Demarrer frontend React (port 5173)
-    Write-Host "   [5] Demarrage du frontend React (port 5173)..." -ForegroundColor Cyan
+    # 6. Demarrer resources-fastapi (port 5001)
+    Write-Host "   [6] Demarrage de resources-fastapi (port 5001)..." -ForegroundColor Cyan
+    $resourcesPath = Join-Path $projectRoot "services\resources-fastapi"
+    if (Test-Path $resourcesPath) {
+        Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$resourcesPath'; python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 5001" -WindowStyle Normal
+        Write-Host "   [OK] resources-fastapi demarre" -ForegroundColor Green
+        Start-Sleep -Seconds 2
+    } else {
+        Write-Host "   [WARN] resources-fastapi non trouve" -ForegroundColor Yellow
+    }
+    
+    # 7. Demarrer frontend React (port 5173)
+    Write-Host "   [7] Demarrage du frontend React (port 5173)..." -ForegroundColor Cyan
     $frontendPath = Join-Path $projectRoot "client\frontend-react"
     Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$frontendPath'; npm run dev" -WindowStyle Normal
     Write-Host "   [OK] Frontend React demarre" -ForegroundColor Green
@@ -100,9 +122,11 @@ function Test-Servers {
     
     $services = @(
         @{ Name = "auth-node"; Url = "http://localhost:4001/health" },
+        @{ Name = "applications-node"; Url = "http://localhost:4002/health" },
         @{ Name = "students-node"; Url = "http://localhost:4003/health" },
         @{ Name = "payments-fastapi"; Url = "http://localhost:4004/health" },
         @{ Name = "notifications-node"; Url = "http://localhost:4005/health" },
+        @{ Name = "resources-fastapi"; Url = "http://localhost:5001/health" },
         @{ Name = "frontend-react"; Url = "http://localhost:5173" }
     )
     
@@ -128,9 +152,11 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "URLs des services:" -ForegroundColor Yellow
 Write-Host "   - auth-node:          http://localhost:4001" -ForegroundColor Cyan
+Write-Host "   - applications-node:  http://localhost:4002" -ForegroundColor Cyan
 Write-Host "   - students-node:      http://localhost:4003" -ForegroundColor Cyan
 Write-Host "   - payments-fastapi:   http://localhost:4004" -ForegroundColor Cyan
 Write-Host "   - notifications-node: http://localhost:4005" -ForegroundColor Cyan
+Write-Host "   - resources-fastapi:  http://localhost:5001" -ForegroundColor Cyan
 Write-Host "   - frontend-react:     http://localhost:5173" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "[INFO] Les serveurs sont lances dans des fenetres separees" -ForegroundColor Gray
