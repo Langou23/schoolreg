@@ -4,6 +4,7 @@ import { StudentsApi, PaymentsApi, EnrollmentsApi, ClassesApi, ApplicationsApi }
 import { User, GraduationCap, CreditCard, BookOpen, Calendar, Mail, Phone, MapPin, ArrowLeft, Plus, AlertCircle, CheckCircle, Clock, Bell, FileText, RefreshCw } from 'lucide-react';
 import DocumentUpload from './DocumentUpload';
 import PaymentModal from './PaymentModal';
+import StudentProfileLinking from './StudentProfileLinking';
 
 interface UserDashboardProps {
   user: UserProfile;
@@ -23,6 +24,7 @@ export default function UserDashboard({ user, onBack }: UserDashboardProps) {
   const [showDocumentUpload, setShowDocumentUpload] = useState(false);
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showLinkingInterface, setShowLinkingInterface] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -96,6 +98,23 @@ export default function UserDashboard({ user, onBack }: UserDashboardProps) {
             
             const studentApplications = allApplications.filter((a: Application) => a.studentId === student.id);
             setApplications(studentApplications);
+          }
+        } else {
+          // Si pas de studentId, chercher par user_id dans les profils élèves
+          const allStudents = await StudentsApi.list();
+          const linkedStudent = allStudents.find((s: Student) => s.userId === user.id);
+          
+          if (linkedStudent) {
+            console.log('🎓 Étudiant lié trouvé via userId:', linkedStudent.id);
+            setStudents([linkedStudent]);
+            setSelectedStudent(linkedStudent);
+            loadStudentDetails(linkedStudent.id, allPayments, allEnrollments, allClasses);
+            
+            const studentApplications = allApplications.filter((a: Application) => a.studentId === linkedStudent.id);
+            setApplications(studentApplications);
+          } else {
+            console.log('🎓 Aucun profil élève lié trouvé - affichage de la page de liaison');
+            setShowLinkingInterface(true);
           }
         }
       }
@@ -475,27 +494,43 @@ export default function UserDashboard({ user, onBack }: UserDashboardProps) {
                         : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className={`font-semibold ${
-                        isSelected ? 'text-blue-900' : 'text-gray-900'
-                      }`}>
-                        {student.firstName} {student.lastName}
-                      </h4>
-                      {balance > 0 && (
-                        <span className="bg-orange-100 text-orange-700 px-2 py-1 text-xs rounded-full">
-                          Solde: {balance.toLocaleString('en-CA', { minimumFractionDigits: 2 })} $ CA
-                        </span>
+                    <div className="flex items-center gap-3 mb-2">
+                      {/* Photo de profil miniature */}
+                      {student.profilePhoto ? (
+                        <img 
+                          src={student.profilePhoto} 
+                          alt={`${student.firstName} ${student.lastName}`}
+                          className="w-12 h-12 rounded-full object-cover border-2 border-gray-200"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-sm font-medium border-2 border-gray-300">
+                          {student.firstName?.[0]}{student.lastName?.[0]}
+                        </div>
                       )}
-                      {balance === 0 && student.tuitionAmount && (
-                        <span className="bg-green-100 text-green-700 px-2 py-1 text-xs rounded-full">
-                          ✓ Payé
-                        </span>
-                      )}
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <h4 className={`font-semibold ${
+                            isSelected ? 'text-blue-900' : 'text-gray-900'
+                          }`}>
+                            {student.firstName} {student.lastName}
+                          </h4>
+                          {balance > 0 && (
+                            <span className="bg-orange-100 text-orange-700 px-2 py-1 text-xs rounded-full">
+                              Solde: {balance.toLocaleString('en-CA', { minimumFractionDigits: 2 })} $ CA
+                            </span>
+                          )}
+                          {balance === 0 && student.tuitionAmount && (
+                            <span className="bg-green-100 text-green-700 px-2 py-1 text-xs rounded-full">
+                              ✓ Payé
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-600">
+                          {student.program} • {student.session}
+                          {student.secondaryLevel && ` • ${student.secondaryLevel}`}
+                        </p>
+                      </div>
                     </div>
-                    <p className="text-sm text-gray-600">
-                      {student.program} • {student.session}
-                      {student.secondaryLevel && ` • ${student.secondaryLevel}`}
-                    </p>
                     {student.tuitionAmount && (
                       <div className="mt-2 text-xs text-gray-500">
                         {(student.tuitionPaid || 0).toLocaleString('en-CA', { minimumFractionDigits: 2 })} $ / {student.tuitionAmount.toLocaleString('en-CA', { minimumFractionDigits: 2 })} $
@@ -514,18 +549,109 @@ export default function UserDashboard({ user, onBack }: UserDashboardProps) {
             <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 rounded-2xl shadow-xl p-6 mb-6 text-white">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  <div className="bg-white/20 p-3 rounded-xl backdrop-blur-sm">
-                    <GraduationCap className="w-8 h-8" />
+                  {/* Photo de profil */}
+                  <div className="flex-shrink-0">
+                    {selectedStudent.profilePhoto ? (
+                      <img 
+                        src={selectedStudent.profilePhoto} 
+                        alt={`${selectedStudent.firstName} ${selectedStudent.lastName}`}
+                        className="w-20 h-20 rounded-full object-cover border-4 border-white shadow-lg"
+                      />
+                    ) : (
+                      <div className="w-20 h-20 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center border-4 border-white shadow-lg">
+                        <GraduationCap className="w-10 h-10 text-white" />
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <h2 className="text-2xl font-bold mb-1">
-                      {selectedStudent.firstName} {selectedStudent.lastName}
-                      {students.length > 1 && (
-                        <span className="ml-3 text-sm bg-white/20 px-3 py-1 rounded-full backdrop-blur-sm">
-                          {students.findIndex(s => s.id === selectedStudent.id) + 1} / {students.length}
-                        </span>
-                      )}
-                    </h2>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-2xl font-bold text-white">
+                        {selectedStudent.firstName} {selectedStudent.lastName}
+                      </h2>
+                      
+                      {/* Indicateur de completion du profil */}
+                      <div className="flex items-center gap-2">
+                        {(() => {
+                          // Calculer le pourcentage de completion du profil
+                          let completed = 0;
+                          let total = 8; // Augmenté pour inclure plus de sections
+                          
+                          // Section 1: Informations personnelles de base
+                          if (selectedStudent.firstName && selectedStudent.lastName && selectedStudent.dateOfBirth) completed++;
+                          
+                          // Section 2: Informations parent/tuteur
+                          if (selectedStudent.parentEmail && selectedStudent.parentPhone && selectedStudent.parentName) completed++;
+                          
+                          // Section 3: Contact d'urgence
+                          if (selectedStudent.emergencyContact?.name && selectedStudent.emergencyContact?.phone) completed++;
+                          
+                          // Section 4: Informations médicales
+                          if (selectedStudent.medicalInfo && (
+                            selectedStudent.medicalInfo.allergies?.length || 
+                            selectedStudent.medicalInfo.medications?.length || 
+                            selectedStudent.medicalInfo.medicalConditions?.length || 
+                            selectedStudent.medicalInfo.emergencyMedicalNotes
+                          )) completed++;
+                          
+                          // Section 5: Historique académique
+                          if (selectedStudent.academicHistory && (
+                            selectedStudent.academicHistory.previousSchool || 
+                            selectedStudent.academicHistory.lastGrade
+                          )) completed++;
+                          
+                          // Section 6: Préférences et objectifs
+                          if (selectedStudent.preferences && (
+                            selectedStudent.preferences.goals?.length || 
+                            selectedStudent.preferences.interests?.length ||
+                            selectedStudent.preferences.learningStyle
+                          )) completed++;
+                          
+                          // Section 7: Informations scolaires
+                          if (selectedStudent.program && selectedStudent.session) completed++;
+                          
+                          // Section 8: Photo de profil
+                          if (selectedStudent.profilePhoto) completed++;
+                          
+                          const percentage = Math.round((completed / total) * 100);
+                          
+                          const getStatusConfig = () => {
+                            if (percentage >= 90) return {
+                              color: 'green',
+                              icon: '✓',
+                              bg: 'bg-green-100',
+                              text: 'text-green-800',
+                              message: 'Profil complet'
+                            };
+                            if (percentage >= 60) return {
+                              color: 'yellow', 
+                              icon: '⌚',
+                              bg: 'bg-yellow-100',
+                              text: 'text-yellow-800',
+                              message: 'En cours'
+                            };
+                            return {
+                              color: 'red',
+                              icon: '⚠',
+                              bg: 'bg-red-100', 
+                              text: 'text-red-800',
+                              message: 'Incomplet'
+                            };
+                          };
+                          
+                          const status = getStatusConfig();
+                          
+                          return (
+                            <div className={`flex items-center gap-2 px-3 py-1 rounded-full ${status.bg}`}>
+                              <span className={`${status.text}`}>{status.icon}</span>
+                              <span className={`text-sm font-medium ${status.text}`}>
+                                {percentage}% complet
+                              </span>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                    
                     <p className="text-blue-100 flex items-center gap-2">
                       <BookOpen className="w-4 h-4" />
                       {selectedStudent.program} • {selectedStudent.session}
@@ -757,6 +883,151 @@ export default function UserDashboard({ user, onBack }: UserDashboardProps) {
                 </div>
               </div>
 
+              {/* Carte Contact d'urgence */}
+              {selectedStudent.emergencyContact && (
+                <div className="bg-white rounded-2xl shadow-lg p-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="bg-orange-100 p-2 rounded-lg">
+                      <span className="text-lg">🛡️</span>
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-900">Contact d'urgence</h3>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-sm text-gray-600">Nom</p>
+                      <p className="font-semibold text-gray-900">{selectedStudent.emergencyContact.name}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600">Téléphone</p>
+                      <p className="font-semibold text-gray-900">{selectedStudent.emergencyContact.phone}</p>
+                    </div>
+                    {selectedStudent.emergencyContact.relationship && (
+                      <div>
+                        <p className="text-sm text-gray-600">Relation</p>
+                        <p className="font-semibold text-gray-900">{selectedStudent.emergencyContact.relationship}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Carte Informations médicales */}
+              {selectedStudent.medicalInfo && (
+                <div className="bg-white rounded-2xl shadow-lg p-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="bg-red-100 p-2 rounded-lg">
+                      <span className="text-lg">🏥</span>
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-900">Informations médicales</h3>
+                  </div>
+                  <div className="space-y-3">
+                    {selectedStudent.medicalInfo.allergies?.length && (
+                      <div>
+                        <p className="text-sm text-gray-600">Allergies</p>
+                        <p className="font-semibold text-gray-900">{selectedStudent.medicalInfo.allergies.join(', ')}</p>
+                      </div>
+                    )}
+                    {selectedStudent.medicalInfo.medications?.length && (
+                      <div>
+                        <p className="text-sm text-gray-600">Médicaments</p>
+                        <p className="font-semibold text-gray-900">{selectedStudent.medicalInfo.medications.join(', ')}</p>
+                      </div>
+                    )}
+                    {selectedStudent.medicalInfo.medicalConditions?.length && (
+                      <div>
+                        <p className="text-sm text-gray-600">Conditions médicales</p>
+                        <p className="font-semibold text-gray-900">{selectedStudent.medicalInfo.medicalConditions.join(', ')}</p>
+                      </div>
+                    )}
+                    {selectedStudent.medicalInfo.emergencyMedicalNotes && (
+                      <div>
+                        <p className="text-sm text-gray-600">Notes</p>
+                        <p className="font-semibold text-gray-900">{selectedStudent.medicalInfo.emergencyMedicalNotes}</p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="mt-3 p-2 bg-red-50 rounded-lg">
+                    <p className="text-xs text-red-800">ℹ️ Informations confidentielles - personnel autorisé uniquement</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Carte Historique académique */}
+              {selectedStudent.academicHistory && (
+                <div className="bg-white rounded-2xl shadow-lg p-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="bg-blue-100 p-2 rounded-lg">
+                      <span className="text-lg">🎓</span>
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-900">Historique académique</h3>
+                  </div>
+                  <div className="space-y-3">
+                    {selectedStudent.academicHistory.previousSchool && (
+                      <div>
+                        <p className="text-sm text-gray-600">École précédente</p>
+                        <p className="font-semibold text-gray-900">{selectedStudent.academicHistory.previousSchool}</p>
+                      </div>
+                    )}
+                    {selectedStudent.academicHistory.lastGrade && (
+                      <div>
+                        <p className="text-sm text-gray-600">Dernier niveau</p>
+                        <p className="font-semibold text-gray-900">{selectedStudent.academicHistory.lastGrade}</p>
+                      </div>
+                    )}
+                    {selectedStudent.academicHistory.transferReason && (
+                      <div>
+                        <p className="text-sm text-gray-600">Raison du transfert</p>
+                        <p className="font-semibold text-gray-900">{selectedStudent.academicHistory.transferReason}</p>
+                      </div>
+                    )}
+                    {selectedStudent.academicHistory.languages?.length && (
+                      <div>
+                        <p className="text-sm text-gray-600">Langues parlées</p>
+                        <p className="font-semibold text-gray-900">{selectedStudent.academicHistory.languages.join(', ')}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Carte Préférences et objectifs */}
+              {selectedStudent.preferences && (
+                <div className="bg-white rounded-2xl shadow-lg p-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="bg-purple-100 p-2 rounded-lg">
+                      <span className="text-lg">🎯</span>
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-900">Préférences et objectifs</h3>
+                  </div>
+                  <div className="space-y-3">
+                    {selectedStudent.preferences.goals?.length && (
+                      <div>
+                        <p className="text-sm text-gray-600">Objectifs scolaires</p>
+                        <p className="font-semibold text-gray-900">{selectedStudent.preferences.goals.join(', ')}</p>
+                      </div>
+                    )}
+                    {selectedStudent.preferences.interests?.length && (
+                      <div>
+                        <p className="text-sm text-gray-600">Centres d'intérêt</p>
+                        <p className="font-semibold text-gray-900">{selectedStudent.preferences.interests.join(', ')}</p>
+                      </div>
+                    )}
+                    {selectedStudent.preferences.extracurriculars?.length && (
+                      <div>
+                        <p className="text-sm text-gray-600">Activités extrascolaires</p>
+                        <p className="font-semibold text-gray-900">{selectedStudent.preferences.extracurriculars.join(', ')}</p>
+                      </div>
+                    )}
+                    {selectedStudent.preferences.learningStyle && (
+                      <div>
+                        <p className="text-sm text-gray-600">Style d'apprentissage</p>
+                        <p className="font-semibold text-gray-900 capitalize">{selectedStudent.preferences.learningStyle}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Carte Paiements */}
               <div className="bg-white rounded-2xl shadow-lg p-6">
                 <div className="flex items-center gap-3 mb-4">
@@ -866,6 +1137,22 @@ export default function UserDashboard({ user, onBack }: UserDashboardProps) {
           </>
         )}
       </div>
+
+      {/* Interface de liaison pour les élèves */}
+      {showLinkingInterface && user.role === 'student' && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <StudentProfileLinking
+              user={user}
+              onLinkSuccess={() => {
+                setShowLinkingInterface(false);
+                // Recharger les données pour récupérer le profil lié
+                loadData();
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Modales */}
       {showDocumentUpload && selectedApplicationId && (

@@ -2,6 +2,7 @@
 SQLAlchemy models matching Prisma schema for students domain.
 """
 from sqlalchemy import Column, String, DateTime, Float, Integer, Boolean, Enum as SQLEnum, ForeignKey, Text
+from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -47,6 +48,20 @@ class PaymentStatus(str, enum.Enum):
     refunded = "refunded"
 
 
+class NotificationType(str, enum.Enum):
+    payment_reminder = "payment_reminder"
+    payment_overdue = "payment_overdue"
+    payment_due_soon = "payment_due_soon"
+    payment_received = "payment_received"
+    general_info = "general_info"
+
+
+class NotificationStatus(str, enum.Enum):
+    unread = "unread"
+    read = "read"
+    archived = "archived"
+
+
 class Student(Base):
     __tablename__ = "students"
 
@@ -70,6 +85,27 @@ class Student(Base):
     registration_deadline = Column(DateTime, nullable=True)
     application_id = Column(String, nullable=True, unique=True)
     user_id = Column(String, nullable=True, unique=True)
+    
+    # NOUVEAUX CHAMPS PROFIL COMPLET
+    # Contact d'urgence (JSON)
+    emergency_contact = Column(JSON, nullable=True)  # {name, phone, relationship, email}
+    
+    # Informations médicales (JSON)
+    medical_info = Column(JSON, nullable=True)  # {allergies, medications, conditions, notes}
+    
+    # Historique académique (JSON) 
+    academic_history = Column(JSON, nullable=True)  # {previous_school, last_grade, etc.}
+    
+    # Préférences et objectifs (JSON)
+    preferences = Column(JSON, nullable=True)  # {goals, interests, learning_style}
+    
+    # Photo de profil
+    profile_photo = Column(String, nullable=True)
+    
+    # Statut du profil
+    profile_completed = Column(Boolean, nullable=False, default=False)
+    profile_completion_date = Column(DateTime, nullable=True)
+    
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -105,8 +141,17 @@ class Enrollment(Base):
     class_id = Column(String, ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
     enrollment_date = Column(DateTime, nullable=False, default=datetime.utcnow)
     status = Column(SQLEnum(EnrollmentStatus), nullable=False, default=EnrollmentStatus.active)
-    grade = Column(Float, nullable=True)
+    grade = Column(Float, nullable=True)  # Note finale (0-100 %)
     attendance = Column(Float, nullable=True, default=0.0)
+    
+    # NOUVEAUX CHAMPS SYSTÈME QUÉBÉCOIS
+    # Détail des notes par matière (JSON) - Structure québécoise
+    course_grades = Column(JSON, nullable=True)  # {course_code: {grade, competency_results, comments}}
+    quebec_report_card = Column(JSON, nullable=True)  # Bulletin québécois complet
+    competencies_assessment = Column(JSON, nullable=True)  # Évaluation des compétences
+    academic_year = Column(String, nullable=True)  # Année scolaire (ex: "2024-2025")
+    semester = Column(String, nullable=True)  # Étape (1, 2, 3)
+    
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -135,3 +180,35 @@ class Payment(Base):
 
     # Relationships
     student = relationship("Student", back_populates="payments")
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, nullable=False)  # Parent/Student qui reçoit la notification
+    student_id = Column(String, ForeignKey("students.id", ondelete="CASCADE"), nullable=True)  # Élève concerné
+    payment_id = Column(String, ForeignKey("payments.id", ondelete="CASCADE"), nullable=True)  # Paiement concerné
+    
+    # Contenu de la notification
+    title = Column(String, nullable=False)
+    message = Column(Text, nullable=False)
+    type = Column(SQLEnum(NotificationType), nullable=False)
+    status = Column(SQLEnum(NotificationStatus), nullable=False, default=NotificationStatus.unread)
+    
+    # Métadonnées
+    priority = Column(String, nullable=False, default="normal")  # low, normal, high, urgent
+    read_at = Column(DateTime, nullable=True)
+    email_sent = Column(Boolean, nullable=False, default=False)
+    email_sent_at = Column(DateTime, nullable=True)
+    
+    # Données pour logique business
+    amount = Column(Float, nullable=True)  # Montant concerné
+    due_date = Column(DateTime, nullable=True)  # Date limite concernée
+    
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    student = relationship("Student", backref="notifications")
+    payment = relationship("Payment", backref="notifications")

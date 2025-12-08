@@ -127,14 +127,16 @@ export default function PaymentModal({
               <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg gap-3">
                 <div className="flex-1">
                   <span className="block text-gray-600 mb-1">Montant (CAD)</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.01}
+                  <select
                     value={localAmount}
                     onChange={(e) => setLocalAmount(parseFloat(e.target.value) || 0)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-right font-semibold"
-                  />
+                  >
+                    <option value="">Sélectionner</option>
+                    {[50, 100, 150, 200, 250, 300, 400, 500, 600, 750, 1000, 1250, 1500, 2000, 2500, 3000, 4000, 5000].map(amount => (
+                      <option key={amount} value={amount}>{amount.toLocaleString('fr-CA')} $</option>
+                    ))}
+                  </select>
                 </div>
                 <span className="text-xl font-bold text-gray-900 whitespace-nowrap">
                   {localAmount.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $ CA

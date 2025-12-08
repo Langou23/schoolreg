@@ -3,6 +3,7 @@ import { UserProfile } from '../types';
 import { FileText, User, GraduationCap, Sparkles, ArrowRight } from 'lucide-react';
 import PublicApplicationForm from './PublicApplicationForm';
 import UserDashboard from './UserDashboard';
+import StudentOwnDashboard from './StudentOwnDashboard';
 import Navbar from './Navbar';
 
 interface UserHomeProps {
@@ -30,12 +31,22 @@ export default function UserHome({ user, onLogout }: UserHomeProps) {
   }
 
   if (currentView === 'profile') {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-        <Navbar user={user} onLogout={onLogout} />
-        <UserDashboard key={dashboardKey} user={user} onBack={() => setCurrentView('home')} />
-      </div>
-    );
+    // Les élèves voient leur propre dashboard, les parents voient le dashboard général
+    if (user.role === 'student') {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+          <Navbar user={user} onLogout={onLogout} />
+          <StudentOwnDashboard key={dashboardKey} user={user} onBack={() => setCurrentView('home')} />
+        </div>
+      );
+    } else {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+          <Navbar user={user} onLogout={onLogout} />
+          <UserDashboard key={dashboardKey} user={user} onBack={() => setCurrentView('home')} />
+        </div>
+      );
+    }
   }
 
   return (

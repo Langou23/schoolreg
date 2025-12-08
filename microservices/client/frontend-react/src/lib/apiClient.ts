@@ -1,23 +1,100 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+// URLs des différents microservices
+const AUTH_URL = 'http://localhost:4001';
+const STUDENTS_URL = 'http://localhost:4003';
+const APPLICATIONS_URL = 'http://localhost:4002';
+const CLASSES_URL = 'http://localhost:4005';
+const PAYMENTS_URL = 'http://localhost:4004';
+const NOTIFICATIONS_URL = 'http://localhost:4006';
 
-// Créer instance axios
-export const apiClient = axios.create({
-  baseURL: API_URL,
+// Client pour le service Auth
+export const authClient = axios.create({
+  baseURL: AUTH_URL,
+  timeout: 8000,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// Intercepteur pour ajouter le token JWT
-apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem('auth_token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
+// Client pour le service Students
+export const studentsClient = axios.create({
+  baseURL: STUDENTS_URL,
+  timeout: 8000,
+  headers: {
+    'Content-Type': 'application/json',
+  },
 });
+
+// Client pour le service Applications
+export const applicationsClient = axios.create({
+  baseURL: APPLICATIONS_URL,
+  timeout: 8000,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Client pour le service Classes
+export const classesClient = axios.create({
+  baseURL: CLASSES_URL,
+  timeout: 8000,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Client pour le service Payments
+export const paymentsClient = axios.create({
+  baseURL: PAYMENTS_URL,
+  timeout: 8000,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Client pour le service Notifications
+export const notificationsClient = axios.create({
+  baseURL: NOTIFICATIONS_URL,
+  timeout: 8000,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Client générique (pour compatibilité)
+export const apiClient = authClient;
+
+// Fonction pour ajouter le token JWT à tous les clients
+const addAuthInterceptor = (client: any) => {
+  client.interceptors.request.use((config: any) => {
+    const token = localStorage.getItem('auth_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  });
+  
+  client.interceptors.response.use(
+    (response: any) => response,
+    (error: any) => {
+      if (error.response?.status === 401) {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('current_user');
+        window.location.href = '/login';
+      }
+      return Promise.reject(error);
+    }
+  );
+};
+
+// Ajouter les intercepteurs à tous les clients
+addAuthInterceptor(authClient);
+addAuthInterceptor(studentsClient);
+addAuthInterceptor(applicationsClient);
+addAuthInterceptor(classesClient);
+addAuthInterceptor(paymentsClient);
+addAuthInterceptor(notificationsClient);
 
 // Intercepteur pour gérer les erreurs
 apiClient.interceptors.response.use(
@@ -38,7 +115,7 @@ apiClient.interceptors.response.use(
 
 export const AuthAPI = {
   signIn: async (email: string, password: string) => {
-    const { data } = await apiClient.post('/auth/signin', { email, password });
+    const { data } = await authClient.post('/api/auth/signin', { email, password });
     if (data.token) {
       localStorage.setItem('auth_token', data.token);
       localStorage.setItem('current_user', JSON.stringify(data.user));
@@ -52,7 +129,7 @@ export const AuthAPI = {
     fullName: string;
     role: string;
   }) => {
-    const { data } = await apiClient.post('/auth/signup', userData);
+    const { data } = await authClient.post('/api/auth/signup', userData);
     if (data.token) {
       localStorage.setItem('auth_token', data.token);
       localStorage.setItem('current_user', JSON.stringify(data.user));
@@ -62,7 +139,7 @@ export const AuthAPI = {
 
   getCurrentUser: async () => {
     try {
-      const { data } = await apiClient.get('/auth/me');
+      const { data } = await authClient.get('/api/auth/me');
       localStorage.setItem('current_user', JSON.stringify(data.user));
       return data.user;
     } catch (error) {
@@ -89,33 +166,45 @@ export const AuthAPI = {
 // ============================================
 
 export const StudentsApi = {
-  list: async (filters?: { parentEmail?: string; status?: string; program?: string }) => {
+  list: async (filters?: { parentEmail?: string; status?: string; program?: string; withoutActiveClass?: boolean }) => {
     const params = new URLSearchParams();
     if (filters?.parentEmail) params.append('parentEmail', filters.parentEmail);
     if (filters?.status) params.append('status', filters.status);
     if (filters?.program) params.append('program', filters.program);
+    if (filters?.withoutActiveClass) params.append('withoutActiveClass', 'true');
     
-    const { data } = await apiClient.get(`/students?${params.toString()}`);
+    const { data } = await studentsClient.get(`/students?${params.toString()}`);
     return data;
   },
 
   getById: async (id: string) => {
-    const { data } = await apiClient.get(`/students/${id}`);
+    const { data } = await studentsClient.get(`/students/${id}`);
     return data;
   },
 
   create: async (studentData: any) => {
-    const { data } = await apiClient.post('/students', studentData);
+    const { data } = await studentsClient.post('/students', studentData);
     return data;
   },
 
   update: async (id: string, studentData: any) => {
-    const { data } = await apiClient.put(`/students/${id}`, studentData);
+    const { data } = await studentsClient.put(`/students/${id}`, studentData);
     return data;
   },
 
-  remove: async (id: string) => {
-    const { data } = await apiClient.delete(`/students/${id}`);
+  delete: async (id: string) => {
+    const { data } = await studentsClient.delete(`/students/${id}`);
+    return data;
+  },
+
+  uploadPhoto: async (studentId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const { data } = await studentsClient.post(`/students/${studentId}/photo`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
     return data;
   },
 };
@@ -131,29 +220,29 @@ export const ApplicationsApi = {
     if (filters?.status) params.append('status', filters.status);
     
     console.log('🔍 ApplicationsApi.list - Appel API avec filtres:', filters);
-    const { data } = await apiClient.get(`/applications?${params.toString()}`);
+    const { data } = await applicationsClient.get(`/applications?${params.toString()}`);
     console.log('📦 ApplicationsApi.list - Données reçues:', data);
     console.log('📊 ApplicationsApi.list - Nombre d\'applications:', Array.isArray(data) ? data.length : 'N/A');
     return data;
   },
 
   create: async (applicationData: any) => {
-    const { data } = await apiClient.post('/applications', applicationData);
+    const { data } = await applicationsClient.post('/applications', applicationData);
     return data;
   },
 
   update: async (id: string, applicationData: any) => {
-    const { data } = await apiClient.put(`/applications/${id}`, applicationData);
+    const { data } = await applicationsClient.put(`/applications/${id}`, applicationData);
     return data;
   },
 
   approve: async (id: string, notes?: string) => {
-    const { data } = await apiClient.post(`/applications/${id}/approve`, { notes });
+    const { data } = await applicationsClient.post(`/applications/${id}/approve`, { notes });
     return data;
   },
 
   reject: async (id: string, notes?: string) => {
-    const { data } = await apiClient.post(`/applications/${id}/reject`, { reason: notes });
+    const { data } = await applicationsClient.post(`/applications/${id}/reject`, { reason: notes });
     return data;
   },
 };
@@ -164,22 +253,23 @@ export const ApplicationsApi = {
 
 export const ClassesApi = {
   list: async () => {
-    const { data } = await apiClient.get('/classes');
+    // Utiliser l'endpoint du service students-node pour récupérer les classes
+    const { data } = await studentsClient.get('/admin/classes');
     return data;
   },
 
   create: async (classData: any) => {
-    const { data } = await apiClient.post('/classes', classData);
+    const { data } = await classesClient.post('/classes', classData);
     return data;
   },
 
   update: async (id: string, classData: any) => {
-    const { data } = await apiClient.put(`/classes/${id}`, classData);
+    const { data } = await classesClient.put(`/classes/${id}`, classData);
     return data;
   },
 
   remove: async (id: string) => {
-    const { data } = await apiClient.delete(`/classes/${id}`);
+    const { data } = await classesClient.delete(`/classes/${id}`);
     return data;
   },
 };
@@ -190,27 +280,39 @@ export const ClassesApi = {
 
 export const EnrollmentsApi = {
   list: async () => {
-    const { data } = await apiClient.get('/enrollments');
+    const { data } = await studentsClient.get('/enrollments');
     return data;
   },
 
-  listByClass: async (classId: string) => {
-    const { data } = await apiClient.get(`/enrollments?classId=${classId}`);
+  listByClass: async (classId: string, status?: string) => {
+    const params = new URLSearchParams({ classId });
+    if (status) params.append('status', status);
+    const { data } = await studentsClient.get(`/enrollments?${params.toString()}`);
     return data;
   },
 
   listByStudent: async (studentId: string) => {
-    const { data } = await apiClient.get(`/enrollments?studentId=${studentId}`);
+    const { data } = await studentsClient.get(`/enrollments?studentId=${studentId}`);
     return data;
   },
 
   create: async (enrollmentData: any) => {
-    const { data } = await apiClient.post('/enrollments', enrollmentData);
+    const { data } = await studentsClient.post('/enrollments', enrollmentData);
+    return data;
+  },
+
+  update: async (id: string, enrollmentData: any) => {
+    const { data } = await studentsClient.put(`/enrollments/${id}`, enrollmentData);
     return data;
   },
 
   remove: async (id: string) => {
-    const { data } = await apiClient.delete(`/enrollments/${id}`);
+    const { data} = await studentsClient.delete(`/enrollments/${id}`);
+    return data;
+  },
+
+  updateGrades: async (enrollmentId: string, gradesData: any) => {
+    const { data } = await studentsClient.post(`/enrollments/${enrollmentId}/grades`, gradesData);
     return data;
   },
 };
@@ -225,27 +327,27 @@ export const PaymentsApi = {
     if (filters?.studentId) params.append('studentId', filters.studentId);
     if (filters?.status) params.append('status', filters.status);
     
-    const { data} = await apiClient.get(`/payments?${params.toString()}`);
+    const { data} = await studentsClient.get(`/payments?${params.toString()}`);
     return data;
   },
 
   listByStudent: async (studentId: string) => {
-    const { data } = await apiClient.get(`/payments?studentId=${studentId}`);
+    const { data } = await studentsClient.get(`/payments?studentId=${studentId}`);
     return data;
   },
 
   create: async (paymentData: any) => {
-    const { data } = await apiClient.post('/payments', paymentData);
+    const { data } = await studentsClient.post('/payments', paymentData);
     return data;
   },
 
   update: async (id: string, paymentData: any) => {
-    const { data } = await apiClient.put(`/payments/${id}`, paymentData);
+    const { data } = await studentsClient.put(`/payments/${id}`, paymentData);
     return data;
   },
 
   remove: async (id: string) => {
-    const { data } = await apiClient.delete(`/payments/${id}`);
+    const { data } = await studentsClient.delete(`/payments/${id}`);
     return data;
   },
 };

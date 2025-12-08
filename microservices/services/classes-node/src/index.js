@@ -47,7 +47,7 @@ app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'classes-nod
 // ============================================
 // GET ALL CLASSES
 // ============================================
-app.get('/', async (req, res) => {
+app.get('/classes', async (req, res) => {
   try {
     const classes = await prisma.class.findMany({
       include: { enrollments: true },
@@ -62,7 +62,7 @@ app.get('/', async (req, res) => {
 // ============================================
 // GET CLASS BY ID
 // ============================================
-app.get('/:id', async (req, res) => {
+app.get('/classes/:id', async (req, res) => {
   try {
     const classData = await prisma.class.findUnique({
       where: { id: req.params.id },
@@ -84,7 +84,7 @@ app.get('/:id', async (req, res) => {
 // CREATE CLASS
 // ============================================
 app.post(
-  '/',
+  '/classes',
   requireAuth,
   requireRole('admin', 'direction'),
   [
@@ -116,7 +116,7 @@ app.post(
 // UPDATE CLASS
 // ============================================
 app.put(
-  '/:id',
+  '/classes/:id',
   requireAuth,
   requireRole('admin', 'direction'),
   async (req, res) => {
@@ -138,7 +138,7 @@ app.put(
 // DELETE CLASS
 // ============================================
 app.delete(
-  '/:id',
+  '/classes/:id',
   requireAuth,
   requireRole('admin', 'direction'),
   async (req, res) => {

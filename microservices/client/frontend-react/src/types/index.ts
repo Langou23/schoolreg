@@ -30,6 +30,51 @@ export interface Student {
   sessionStartDate?: string;
   registrationDeadline?: string;
   applicationId?: string;
+  userId?: string;  // ID de liaison avec le compte utilisateur
+  
+  // NOUVELLES INFORMATIONS PROFIL COMPLET
+  // Photo et identité
+  profilePhoto?: string;
+  studentId?: string; // Numéro étudiant unique
+  
+  // Informations médicales
+  medicalInfo?: {
+    allergies?: string[];
+    medications?: string[];
+    medicalConditions?: string[];
+    bloodType?: string;
+    emergencyMedicalNotes?: string;
+  };
+  
+  // Contact d'urgence
+  emergencyContact?: {
+    name: string;
+    relationship: string;
+    phone: string;
+    email?: string;
+  };
+  
+  // Historique académique
+  academicHistory?: {
+    previousSchool?: string;
+    lastGrade?: string;
+    transferReason?: string;
+    specialNeeds?: string[];
+    languages?: string[];
+  };
+  
+  // Préférences et objectifs
+  preferences?: {
+    goals?: string[];
+    interests?: string[];
+    extracurriculars?: string[];
+    learningStyle?: 'visuel' | 'auditif' | 'kinesthésique' | 'mixte';
+  };
+  
+  // Statut du profil
+  profileCompleted?: boolean;
+  profileCompletionDate?: string;
+  
   createdAt?: string;
   updatedAt?: string;
 }
@@ -85,8 +130,16 @@ export interface Enrollment {
   classId: string;
   enrollmentDate: string;
   status: 'active' | 'completed' | 'dropped' | 'failed';
-  grade?: string;
+  grade?: number;
   attendance?: number;
+  
+  // NOUVEAUX CHAMPS SYSTÈME QUÉBÉCOIS
+  courseGrades?: any;  // {course_code: {grade, competency_results, comments}}
+  quebecReportCard?: any;  // Bulletin québécois complet
+  competenciesAssessment?: any;  // Évaluation des compétences
+  academicYear?: string;  // Année scolaire (ex: "2024-2025")
+  semester?: string;  // Étape (1, 2, 3)
+  
   student?: Student;
   class?: Class;
 }
@@ -101,6 +154,11 @@ export interface Payment {
   paymentMethod?: string;
   transactionId?: string;
   notes?: string;
+  dueDate?: string;
+  academicYear?: string;
+  userId?: string;
+  createdAt?: string;
+  updatedAt?: string;
   student?: Student;
 }
 

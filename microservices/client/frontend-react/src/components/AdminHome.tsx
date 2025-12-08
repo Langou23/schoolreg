@@ -3,7 +3,7 @@ import { UserProfile } from '../types';
 import { School, Users, FileText, CreditCard, Clock, TrendingUp, ArrowRight, AlertCircle } from 'lucide-react';
 import SchoolSpace from './SchoolSpace';
 import Navbar from './Navbar';
-import { StudentsApi, ApplicationsApi, ClassesApi, PaymentsApi } from '../lib/api';
+import { studentsClient } from '../lib/apiClient';
 
 interface AdminHomeProps {
   user: UserProfile;
@@ -21,70 +21,64 @@ export default function AdminHome({ user, onLogout }: AdminHomeProps) {
   });
   const [loading, setLoading] = useState(true);
 
+  const withTimeout = <T,>(p: Promise<T>, ms = 7000): Promise<T> =>
+    Promise.race([
+      p,
+      new Promise<T>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)) as Promise<T>,
+    ]);
+
   useEffect(() => {
     if (currentView === 'home') {
       fetchQuickStats();
     }
   }, [currentView]);
 
+  useEffect(() => {
+    if (!loading) return;
+    const t = setTimeout(() => setLoading(false), 8000);
+    return () => clearTimeout(t);
+  }, [loading]);
+
   const fetchQuickStats = async () => {
     try {
-      // Charger les applications en premier (prioritaire)
-      const applications = await ApplicationsApi.list();
+      setLoading(true);
+      console.log('🔄 Chargement des statistiques du dashboard...');
       
-      // Charger les autres données (avec gestion d'erreur individuelle)
-      let students = [];
-      let classes = [];
-      let payments = [];
+      // Utiliser l'endpoint optimisé pour récupérer toutes les stats d'un coup
+      const response = await withTimeout(
+        studentsClient.get('/admin/dashboard/stats'), 
+        5000
+      );
       
-      try {
-        students = await StudentsApi.list();
-      } catch (e) {
-        console.warn('⚠️ Erreur chargement students:', e);
+      console.log('✅ Statistiques reçues:', response);
+      
+      const data = (response as any).data;
+      console.log('📊 Data:', data);
+      console.log('📊 Stats:', data?.stats);
+      console.log('📊 Total Classes:', data?.stats?.totalClasses);
+      
+      if (data && data.success && data.stats) {
+        const newStats = {
+          totalStudents: data.stats.totalStudents || 0,
+          pendingApplications: data.stats.pendingApplications || 0,
+          totalClasses: data.stats.totalClasses || 0,
+          pendingPayments: data.stats.pendingPayments || 0,
+          recentApplications: data.stats.recentApplications || [],
+        };
+        console.log('📊 Nouveau stats à afficher:', newStats);
+        setStats(newStats);
+      } else {
+        throw new Error('Format de réponse invalide');
       }
-      
-      try {
-        classes = await ClassesApi.list();
-      } catch (e) {
-        console.warn('⚠️ Erreur chargement classes:', e);
-      }
-      
-      try {
-        payments = await PaymentsApi.list();
-      } catch (e) {
-        console.warn('⚠️ Erreur chargement payments:', e);
-      }
-
-      console.log('📊 ADMIN DASHBOARD - Statistiques:');
-      console.log('Total applications chargées:', applications.length);
-      console.log('Applications:', applications);
-      
-      // Afficher les statuts de toutes les applications
-      (applications as any[]).forEach((app: any, index: number) => {
-        console.log(`  ${index + 1}. ${app.firstName} ${app.lastName} - Status: "${app.status}"`);
-      });
-
-      // Filtrer les applications en attente (plusieurs variantes possibles)
-      const pending = (applications as any[]).filter((a: any) => {
-        const status = a.status?.toLowerCase() || '';
-        return status === 'pending' || status === 'submitted' || status === 'en attente' || status === 'waiting';
-      });
-      console.log('✅ Applications en attente trouvées:', pending.length);
-      console.log('Applications pending:', pending);
-      
-      const pendingPaymentsAmount = (payments as any[])
-        .filter((p: any) => ['pending', 'overdue'].includes(p.status))
-        .reduce((sum: number, p: any) => sum + parseFloat(p.amount?.toString() || '0'), 0);
-
-      setStats({
-        totalStudents: students.length,
-        pendingApplications: pending.length,
-        totalClasses: classes.length,
-        pendingPayments: pendingPaymentsAmount,
-        recentApplications: pending.slice(0, 3),
-      });
     } catch (error) {
-      console.error('❌ Error fetching stats:', error);
+      console.error('❌ Error fetching dashboard stats:', error);
+      setStats({ 
+        totalStudents: 0, 
+        pendingApplications: 0, 
+        totalClasses: 0, 
+        pendingPayments: 0, 
+        recentApplications: [] 
+      });
     } finally {
       setLoading(false);
     }
@@ -116,12 +110,12 @@ export default function AdminHome({ user, onLogout }: AdminHomeProps) {
         </div>
 
         {/* Quick Stats */}
-        {loading ? (
-          <div className="flex justify-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          </div>
-        ) : (
-          <>
+        <>
+            {loading && (
+              <div className="flex items-center justify-center py-2 text-sm text-gray-500">
+                Mise à jour des données...
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
                 <div className="flex items-center justify-between">
@@ -246,7 +240,6 @@ export default function AdminHome({ user, onLogout }: AdminHomeProps) {
               </div>
             </div>
           </>
-        )}
       </div>
     </div>
   );

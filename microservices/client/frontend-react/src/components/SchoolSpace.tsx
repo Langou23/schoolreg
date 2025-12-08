@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import { UserProfile } from '../types';
-import { LayoutDashboard, Users, CreditCard, FileText, ArrowLeft, School } from 'lucide-react';
+import { LayoutDashboard, Users, CreditCard, FileText, ArrowLeft, School, BarChart3 } from 'lucide-react';
 import Dashboard from './Dashboard';
 import StudentsView from './StudentsView';
 import ClassesView from './ClassesView';
 import PaymentsView from './PaymentsView';
 import ApplicationsView from './ApplicationsView';
 import UserDashboard from './UserDashboard';
+import AdminGradesManager from './AdminGradesManager';
 import Navbar from './Navbar';
 
-type View = 'dashboard' | 'students' | 'classes' | 'payments' | 'applications' | 'my-profile';
+type View = 'dashboard' | 'students' | 'classes' | 'payments' | 'applications' | 'grades' | 'my-profile';
 
 interface SchoolSpaceProps {
   user: UserProfile;
@@ -75,6 +76,13 @@ export default function SchoolSpace({ user, onBack, onLogout }: SchoolSpaceProps
         name: 'Inscriptions',
         icon: FileText,
       });
+      
+      // Gestion des notes (admin et direction seulement)
+      items.push({
+        id: 'grades' as View,
+        name: 'Notes & Bulletin',
+        icon: BarChart3,
+      });
     }
 
     return items;
@@ -137,6 +145,9 @@ export default function SchoolSpace({ user, onBack, onLogout }: SchoolSpaceProps
             {currentView === 'classes' && <ClassesView />}
             {currentView === 'payments' && <PaymentsView />}
             {currentView === 'applications' && <ApplicationsView />}
+            {currentView === 'grades' && (
+              <AdminGradesManager onBack={() => setCurrentView('dashboard')} />
+            )}
           </div>
         </main>
       </div>

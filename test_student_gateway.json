@@ -1,0 +1,14 @@
+{
+  "firstName": "AutoHealth",
+  "lastName": "Check",
+  "dateOfBirth": "2011-02-02",
+  "gender": "Masculin",
+  "address": "1 Health Street",
+  "parentName": "Health Parent",
+  "parentPhone": "514-000-0000",
+  "parentEmail": "autohealth@schoolreg.test",
+  "program": "primaire",
+  "session": "automne",
+  "secondaryLevel": "6e",
+  "tuitionAmount": 1000
+}

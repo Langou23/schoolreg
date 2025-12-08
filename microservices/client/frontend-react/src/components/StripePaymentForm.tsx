@@ -21,11 +21,12 @@ interface PaymentFormProps {
   studentId: string;
   studentName: string;
   paymentType: string;
+  paymentId?: string;  // ID du paiement pending à mettre à jour (optionnel)
   onSuccess: () => void;
   onCancel: () => void;
 }
 
-function CheckoutForm({ amount, studentId, studentName, paymentType, onSuccess, onCancel }: PaymentFormProps) {
+function CheckoutForm({ amount, studentId, studentName, paymentType, paymentId, onSuccess, onCancel }: PaymentFormProps) {
   const stripe = useStripe();
   const elements = useElements();
   const [processing, setProcessing] = useState(false);
@@ -39,6 +40,7 @@ function CheckoutForm({ amount, studentId, studentName, paymentType, onSuccess, 
     console.log('💳 Student ID:', studentId);
     console.log('💳 Montant:', amount, 'CAD');
     console.log('💳 Type:', paymentType);
+    console.log('💳 Payment ID (pending):', paymentId || 'Nouveau paiement');
 
     if (!stripe || !elements) {
       console.error('❌ Stripe ou Elements non initialisé');
@@ -61,12 +63,12 @@ function CheckoutForm({ amount, studentId, studentName, paymentType, onSuccess, 
       };
       
       console.log('📤 Requête:', {
-        url: 'http://localhost:3001/api/payments/payment-intent',
+        url: 'http://localhost:4004/payment-intent',
         method: 'POST',
         body: requestBody
       });
 
-      const response = await fetch('http://localhost:3001/api/payments/payment-intent', {
+      const response = await fetch('http://localhost:4004/payment-intent', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -128,7 +130,7 @@ function CheckoutForm({ amount, studentId, studentName, paymentType, onSuccess, 
         // 3. Confirmer le paiement côté serveur (mise à jour DB + notification)
         console.log('📡 Étape 3: Confirmation côté serveur...');
         try {
-          const confirmResponse = await fetch('http://localhost:3001/api/students/payments/confirm-stripe', {
+          const confirmResponse = await fetch('http://localhost:4003/students/payments/confirm-stripe', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

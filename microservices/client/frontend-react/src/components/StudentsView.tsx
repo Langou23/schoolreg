@@ -45,7 +45,7 @@ export default function StudentsView() {
   const handleDelete = async (id: string) => {
     if (!confirm('Êtes-vous sûr de vouloir supprimer cet élève ?')) return;
 
-    await StudentsApi.remove(id);
+    await StudentsApi.delete(id);
     fetchStudents();
   };
 
@@ -131,6 +131,9 @@ export default function StudentsView() {
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Photo
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Nom complet
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -153,6 +156,21 @@ export default function StudentsView() {
               <tbody className="divide-y divide-gray-200">
                 {filteredStudents.map((student) => (
                   <tr key={student.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center justify-center">
+                        {(student as any).profilePhoto ? (
+                          <img 
+                            src={(student as any).profilePhoto} 
+                            alt={`${(student as any).firstName} ${(student as any).lastName}`}
+                            className="w-10 h-10 rounded-full object-cover border-2 border-gray-200"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-xs font-medium border-2 border-gray-300">
+                            {((student as any).firstName?.[0] || '') + ((student as any).lastName?.[0] || '')}
+                          </div>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="font-medium text-gray-900">
                         {(student as any).lastName} {(student as any).firstName}

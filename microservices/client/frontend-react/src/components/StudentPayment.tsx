@@ -8,6 +8,8 @@ interface StudentPaymentProps {
   studentName: string;
   tuitionAmount: number;
   tuitionPaid: number;
+  totalBalance?: number;  // Solde total incluant tous les types de frais
+  feesByType?: any;  // Détail des frais par type
   onClose?: () => void;
   onSuccess?: () => void;
 }
@@ -17,12 +19,16 @@ export default function StudentPayment({
   studentName,
   tuitionAmount,
   tuitionPaid,
+  totalBalance,
+  feesByType,
   onClose,
   onSuccess
 }: StudentPaymentProps) {
   const [payments, setPayments] = useState<any[]>([]);
+  const [pendingPayments, setPendingPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [selectedPayment, setSelectedPayment] = useState<any>(null);
   const [formData, setFormData] = useState({
     amount: '',
     paymentType: 'tuition' as const,
@@ -32,7 +38,8 @@ export default function StudentPayment({
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState('');
 
-  const balance = tuitionAmount - tuitionPaid;
+  // Utiliser totalBalance si disponible, sinon calculer à partir de tuition
+  const balance = totalBalance !== undefined ? totalBalance : (tuitionAmount - tuitionPaid);
 
   useEffect(() => {
     fetchPayments();
@@ -41,10 +48,18 @@ export default function StudentPayment({
   const fetchPayments = async () => {
     try {
       const data = await PaymentsApi.list({ studentId });
-      setPayments(Array.isArray(data) ? data : []);
+      const allPayments = Array.isArray(data) ? data : [];
+      setPayments(allPayments);
+      
+      // Séparer les paiements pending
+      const pending = allPayments.filter(p => p.status === 'pending');
+      setPendingPayments(pending);
+      
+      console.log('💰 Paiements pending:', pending);
     } catch (error) {
       console.error('Error fetching payments:', error);
       setPayments([]);
+      setPendingPayments([]);
     } finally {
       setLoading(false);
     }
@@ -72,7 +87,7 @@ export default function StudentPayment({
         paymentType: formData.paymentType,
         paymentMethod: formData.paymentMethod,
         status: 'paid',
-        notes: formData.notes || `Paiement de ${amount.toLocaleString()} XOF pour ${studentName}`,
+        notes: formData.notes || `Paiement de ${amount.toLocaleString('fr-CA')} $ CAD pour ${studentName}`,
       });
 
       // Envoyer notification à l'admin
@@ -203,8 +218,73 @@ export default function StudentPayment({
         </div>
       </div>
 
+      {/* Pending Payments Section */}
+      {pendingPayments.length > 0 && (
+        <div className="px-6 pb-4">
+          <h4 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+            <Clock className="w-5 h-5 text-amber-600" />
+            Paiements en attente
+          </h4>
+          <div className="space-y-3">
+            {pendingPayments.map((payment) => {
+              const paymentTypeLabels: Record<string, string> = {
+                tuition: 'Scolarité',
+                registration: 'Inscription',
+                transport: 'Transport',
+                uniform: 'Uniforme',
+                other: 'Autre'
+              };
+              const typeLabel = paymentTypeLabels[payment.paymentType] || payment.paymentType;
+              
+              return (
+                <div
+                  key={payment.id}
+                  className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-200 rounded-lg p-4"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className="text-2xl font-bold text-gray-900">
+                          {parseFloat(payment.amount).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $ CA
+                        </span>
+                        <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-sm font-medium">
+                          {typeLabel}
+                        </span>
+                      </div>
+                      {payment.notes && (
+                        <p className="text-sm text-gray-600 mb-2">{payment.notes}</p>
+                      )}
+                      {payment.academicYear && (
+                        <p className="text-sm text-gray-500">
+                          🎓 Session: {payment.academicYear}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => {
+                        setSelectedPayment(payment);
+                        setFormData({
+                          ...formData,
+                          amount: payment.amount.toString(),
+                          paymentType: payment.paymentType
+                        });
+                        setShowPaymentForm(true);
+                      }}
+                      className="ml-4 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all font-semibold shadow-lg flex items-center gap-2"
+                    >
+                      <CreditCard className="w-5 h-5" />
+                      Payer maintenant
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Payment Button */}
-      {balance > 0 && !showPaymentForm && (
+      {balance > 0 && !showPaymentForm && pendingPayments.length === 0 && (
         <div className="px-6 pb-4">
           <button
             onClick={() => setShowPaymentForm(true)}
@@ -219,19 +299,36 @@ export default function StudentPayment({
       {/* Payment Form - Stripe Integration */}
       {showPaymentForm && (
         <div className="px-6 pb-6">
+          <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mb-4">
+            <h4 className="font-semibold text-gray-900 mb-2">
+              {selectedPayment ? '💳 Paiement du solde en attente' : '💳 Nouveau paiement'}
+            </h4>
+            {selectedPayment && (
+              <div className="text-sm text-gray-600">
+                <p>💰 Montant: <span className="font-bold">{parseFloat(selectedPayment.amount).toLocaleString('fr-CA')} $ CAD</span></p>
+                <p>🎯 Type: <span className="font-bold">{selectedPayment.paymentType === 'tuition' ? 'Scolarité' : selectedPayment.paymentType === 'transport' ? 'Transport' : selectedPayment.paymentType === 'registration' ? 'Inscription' : selectedPayment.paymentType}</span></p>
+                {selectedPayment.academicYear && (
+                  <p>🎓 Session: <span className="font-bold">{selectedPayment.academicYear}</span></p>
+                )}
+              </div>
+            )}
+          </div>
           <StripePaymentForm
             amount={parseFloat(formData.amount) || balance}
             studentId={studentId}
             studentName={studentName}
             paymentType={formData.paymentType}
+            paymentId={selectedPayment?.id}  // Passer l'ID du paiement pending
             onSuccess={() => {
               setShowPaymentForm(false);
+              setSelectedPayment(null);
               setFormData({ amount: '', paymentType: 'tuition', paymentMethod: 'card', notes: '' });
               fetchPayments();
               if (onSuccess) onSuccess();
             }}
             onCancel={() => {
               setShowPaymentForm(false);
+              setSelectedPayment(null);
               setError('');
             }}
           />
@@ -267,21 +364,29 @@ export default function StudentPayment({
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Montant (XOF) *
+                  Montant (CAD) *
                 </label>
-                <input
-                  type="number"
+                <select
                   required
-                  min="1"
-                  max={balance}
-                  step="0.01"
                   value={formData.amount}
                   onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                   className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg font-semibold"
-                  placeholder={`Max: ${balance.toLocaleString()} XOF`}
-                />
+                >
+                  <option value="">Sélectionner le montant</option>
+                  {[50, 100, 150, 200, 250, 300, 400, 500, 600, 750, 1000, 1250, 1500, 2000, 2500, 3000, 4000, 5000]
+                    .filter(amount => amount <= balance)
+                    .map(amount => (
+                      <option key={amount} value={amount}>
+                        {amount.toLocaleString('fr-CA')} $ CAD
+                      </option>
+                    ))
+                  }
+                  {balance > 0 && !([50, 100, 150, 200, 250, 300, 400, 500, 600, 750, 1000, 1250, 1500, 2000, 2500, 3000, 4000, 5000].includes(balance)) && (
+                    <option value={balance}>{balance.toLocaleString('fr-CA')} $ CAD (Solde complet)</option>
+                  )}
+                </select>
                 <p className="text-sm text-gray-500 mt-1">
-                  Solde restant: {balance.toLocaleString()} XOF
+                  Solde restant: {balance.toLocaleString('fr-CA')} $ CAD
                 </p>
               </div>
 

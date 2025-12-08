@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Users, X, Mail, Phone, Calendar, BookOpen, CreditCard, ArrowLeft } from 'lucide-react';
+import { Users, X, Mail, Phone, Calendar, BookOpen, CreditCard, ArrowLeft, UserMinus } from 'lucide-react';
 import { EnrollmentsApi } from '../lib/api';
 
 interface ClassStudentsViewProps {
@@ -18,10 +18,13 @@ export default function ClassStudentsView({ classId, className, onClose }: Class
 
   const fetchEnrollments = async () => {
     try {
-      const data = await EnrollmentsApi.listByClass(classId);
+      console.log('🔄 Chargement des inscriptions pour la classe:', classId);
+      // Filtrer uniquement les inscriptions actives
+      const data = await EnrollmentsApi.listByClass(classId, 'active');
+      console.log('✅ Inscriptions reçues:', data);
       setEnrollments(Array.isArray(data) ? data : []);
     } catch (error) {
-      console.error('Error fetching enrollments:', error);
+      console.error('❌ Erreur lors du chargement des inscriptions:', error);
       setEnrollments([]);
     } finally {
       setLoading(false);
@@ -65,6 +68,30 @@ export default function ClassStudentsView({ classId, className, onClose }: Class
     const amount = tuitionAmount || 0;
     const paid = tuitionPaid || 0;
     return amount - paid;
+  };
+
+  const handleUnenroll = async (enrollmentId: string, studentName: string) => {
+    console.log('🔄 Tentative de désinscription:', { enrollmentId, studentName });
+    
+    if (!confirm(`Êtes-vous sûr de vouloir désinscrire ${studentName} de cette classe ?`)) {
+      console.log('❌ Désinscription annulée par l\'utilisateur');
+      return;
+    }
+
+    try {
+      console.log('📤 Envoi de la requête de mise à jour...');
+      const response = await EnrollmentsApi.update(enrollmentId, { status: 'dropped' });
+      console.log('✅ Réponse reçue:', response);
+      
+      // Rafraîchir la liste
+      console.log('🔄 Rafraîchissement de la liste...');
+      await fetchEnrollments();
+      console.log('✅ Désinscription réussie');
+    } catch (error: any) {
+      console.error('❌ Erreur lors de la désinscription:', error);
+      console.error('Détails:', error.response?.data || error.message);
+      alert(`Erreur lors de la désinscription de l'élève: ${error.response?.data?.detail || error.message}`);
+    }
   };
 
   return (
@@ -122,9 +149,18 @@ export default function ClassStudentsView({ classId, className, onClose }: Class
                     {/* Student Header */}
                     <div className="flex items-start justify-between mb-4">
                       <div className="flex items-center gap-3">
-                        <div className="bg-gradient-to-br from-purple-600 to-pink-600 w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg">
-                          {student.firstName?.[0]}{student.lastName?.[0]}
-                        </div>
+                        {/* Photo de profil */}
+                        {student.profilePhoto ? (
+                          <img 
+                            src={student.profilePhoto} 
+                            alt={`${student.firstName} ${student.lastName}`}
+                            className="w-12 h-12 rounded-full object-cover border-2 border-purple-200"
+                          />
+                        ) : (
+                          <div className="bg-gradient-to-br from-purple-600 to-pink-600 w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg border-2 border-purple-200">
+                            {student.firstName?.[0]}{student.lastName?.[0]}
+                          </div>
+                        )}
                         <div>
                           <h3 className="text-lg font-bold text-gray-900">
                             {student.firstName} {student.lastName}
@@ -134,6 +170,15 @@ export default function ClassStudentsView({ classId, className, onClose }: Class
                           </span>
                         </div>
                       </div>
+                      {/* Bouton de désinscription */}
+                      <button
+                        onClick={() => handleUnenroll(enrollment.id, `${student.firstName} ${student.lastName}`)}
+                        className="flex items-center gap-2 px-3 py-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors border border-red-200 hover:border-red-300"
+                        title="Désinscrire de la classe"
+                      >
+                        <UserMinus className="w-4 h-4" />
+                        <span className="text-sm font-medium">Désinscrire</span>
+                      </button>
                     </div>
 
                     {/* Student Details */}

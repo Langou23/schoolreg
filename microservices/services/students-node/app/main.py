@@ -1,9 +1,12 @@
 import os
 from pathlib import Path
 from typing import Optional
-from fastapi import FastAPI, HTTPException, Depends, Body
-from datetime import datetime
+from fastapi import FastAPI, Depends, HTTPException, Body, File, UploadFile
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import desc, func
 from uuid import uuid4
+from datetime import datetime
+import base64
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
@@ -11,9 +14,31 @@ from sqlalchemy.orm import sessionmaker, Session, joinedload
 import stripe
 
 try:
-    from .models import Base, Student, Enrollment, Payment, Class
+    from models import Base, Student, Enrollment, Payment, Class, Notification, Gender, StudentStatus, PaymentType, PaymentStatus, EnrollmentStatus, NotificationType, NotificationStatus
+    from db_maintenance import run_startup_maintenance
 except ImportError:
-    from models import Base, Student, Enrollment, Payment, Class
+    from .models import Base, Student, Enrollment, Payment, Class, Notification, Gender, StudentStatus, PaymentType, PaymentStatus, EnrollmentStatus, NotificationType, NotificationStatus
+    from .db_maintenance import run_startup_maintenance
+
+
+# Fonction pour déduire la session à partir d'une date
+def get_session_from_date(date: datetime) -> str:
+    """
+    Déduit la session académique à partir d'une date.
+    Règles:
+    - Septembre à Décembre: Automne YYYY
+    - Janvier à Avril: Hiver YYYY
+    - Mai à Août: Été YYYY
+    """
+    month = date.month
+    year = date.year
+    
+    if 9 <= month <= 12:  # Septembre à Décembre
+        return f"Automne {year}"
+    elif 1 <= month <= 4:  # Janvier à Avril
+        return f"Hiver {year}"
+    else:  # Mai à Août
+        return f"Été {year}"
 
 
 def load_root_env():
@@ -43,7 +68,22 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:123@localhost:54
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-PORT = int(os.getenv("STUDENTS_PORT", "4002"))
+# Create tables (with new JSON columns)
+Base.metadata.create_all(bind=engine)
+
+# Maintenance automatique désactivée pour éviter le blocage au démarrage
+# Utilisez l'endpoint POST /admin/maintenance/cleanup-enrollments pour nettoyer manuellement
+# print("🔧 Exécution de la maintenance de la base de données...")
+# try:
+#     db = SessionLocal()
+#     maintenance_result = run_startup_maintenance(db)
+#     print(f"✅ Maintenance terminée: {maintenance_result}")
+#     db.close()
+# except Exception as e:
+#     print(f"⚠️  Erreur lors de la maintenance: {e}")
+#     print("   L'application continuera de fonctionner")
+
+PORT = int(os.getenv("STUDENTS_PORT", "4003"))
 
 # Configure Stripe
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
@@ -82,6 +122,14 @@ def serialize_enrollment(e: Enrollment, include_class: bool = True, include_stud
         "status": e.status.value if e.status else None,
         "grade": e.grade,
         "attendance": e.attendance,
+        
+        # NOUVEAUX CHAMPS SYSTÈME QUÉBÉCOIS
+        "courseGrades": e.course_grades,
+        "quebecReportCard": e.quebec_report_card,
+        "competenciesAssessment": e.competencies_assessment,
+        "academicYear": e.academic_year,
+        "semester": e.semester,
+        
         "createdAt": e.created_at.isoformat() if e.created_at else None,
         "updatedAt": e.updated_at.isoformat() if e.updated_at else None,
     }
@@ -104,6 +152,7 @@ def serialize_payment(p: Payment, include_student: bool = False) -> dict:
         "notes": p.notes,
         "paymentDate": p.payment_date.isoformat() if p.payment_date else None,
         "dueDate": p.due_date.isoformat() if p.due_date else None,
+        "academicYear": p.academic_year,  # Ajouter l'année académique
         "userId": p.user_id,
         "createdAt": p.created_at.isoformat() if p.created_at else None,
         "updatedAt": p.updated_at.isoformat() if p.updated_at else None,
@@ -114,6 +163,24 @@ def serialize_payment(p: Payment, include_student: bool = False) -> dict:
 
 
 def serialize_student(s: Student, include_relations: bool = True) -> dict:
+    # Calculer les montants par type de frais à partir des paiements
+    payments_by_type = {}
+    total_pending = 0.0
+    total_paid = 0.0
+    
+    if s.payments:
+        for payment in s.payments:
+            ptype = payment.payment_type.value if payment.payment_type else 'other'
+            if ptype not in payments_by_type:
+                payments_by_type[ptype] = {'pending': 0.0, 'paid': 0.0}
+            
+            if payment.status == PaymentStatus.paid:
+                payments_by_type[ptype]['paid'] += payment.amount
+                total_paid += payment.amount
+            elif payment.status == PaymentStatus.pending:
+                payments_by_type[ptype]['pending'] += payment.amount
+                total_pending += payment.amount
+    
     result = {
         "id": s.id,
         "firstName": s.first_name,
@@ -130,17 +197,61 @@ def serialize_student(s: Student, include_relations: bool = True) -> dict:
         "status": s.status.value if s.status else None,
         "tuitionAmount": s.tuition_amount,
         "tuitionPaid": s.tuition_paid,
+        
+        # CALCULS DES SOLDES PAR TYPE
+        "feesByType": payments_by_type,
+        "totalPending": total_pending,
+        "totalPaid": total_paid,
+        "totalBalance": total_pending,  # Le solde = ce qui reste à payer
         "enrollmentDate": s.enrollment_date.isoformat() if s.enrollment_date else None,
         "sessionStartDate": s.session_start_date.isoformat() if s.session_start_date else None,
         "registrationDeadline": s.registration_deadline.isoformat() if s.registration_deadline else None,
         "applicationId": s.application_id,
         "userId": s.user_id,
+        
+        # NOUVEAUX CHAMPS PROFIL COMPLET
+        "emergencyContact": s.emergency_contact,
+        "medicalInfo": s.medical_info,
+        "academicHistory": s.academic_history,
+        "preferences": s.preferences,
+        "profilePhoto": s.profile_photo,
+        "profileCompleted": s.profile_completed,
+        "profileCompletionDate": s.profile_completion_date.isoformat() if s.profile_completion_date else None,
+        
         "createdAt": s.created_at.isoformat() if s.created_at else None,
         "updatedAt": s.updated_at.isoformat() if s.updated_at else None,
     }
     if include_relations:
-        result["enrollments"] = [serialize_enrollment(e, include_class=True) for e in (s.enrollments or [])]
+        # Filtrer uniquement les inscriptions actives
+        active_enrollments = [e for e in (s.enrollments or []) if e.status == EnrollmentStatus.active]
+        result["enrollments"] = [serialize_enrollment(e, include_class=True) for e in active_enrollments]
         result["payments"] = [serialize_payment(p, include_student=False) for p in (s.payments or [])]
+    return result
+
+
+def serialize_notification(n: Notification, include_student: bool = False, include_payment: bool = False) -> dict:
+    result = {
+        "id": n.id,
+        "userId": n.user_id,
+        "studentId": n.student_id,
+        "paymentId": n.payment_id,
+        "title": n.title,
+        "message": n.message,
+        "type": n.type.value if n.type else None,
+        "status": n.status.value if n.status else None,
+        "priority": n.priority,
+        "readAt": n.read_at.isoformat() if n.read_at else None,
+        "emailSent": n.email_sent,
+        "emailSentAt": n.email_sent_at.isoformat() if n.email_sent_at else None,
+        "amount": n.amount,
+        "dueDate": n.due_date.isoformat() if n.due_date else None,
+        "createdAt": n.created_at.isoformat() if n.created_at else None,
+        "updatedAt": n.updated_at.isoformat() if n.updated_at else None,
+    }
+    if include_student and n.student:
+        result["student"] = serialize_student(n.student, include_relations=False)
+    if include_payment and n.payment:
+        result["payment"] = serialize_payment(n.payment, include_student=False)
     return result
 
 
@@ -154,6 +265,7 @@ async def list_students(
     parentEmail: Optional[str] = None,
     status: Optional[str] = None,
     program: Optional[str] = None,
+    withoutActiveClass: Optional[bool] = None,
     db: Session = Depends(get_db)
 ):
     try:
@@ -164,10 +276,30 @@ async def list_students(
         if parentEmail:
             query = query.filter(Student.parent_email == parentEmail)
         if status:
-            query = query.filter(Student.status == status)
+            try:
+                from models import StudentStatus as _SS
+            except Exception:
+                from .models import StudentStatus as _SS
+            enum_status = _SS(status) if status else None
+            if enum_status:
+                query = query.filter(Student.status == enum_status)
         if program:
             query = query.filter(Student.program == program)
+        
         students = query.order_by(Student.created_at.desc()).all()
+        
+        # Filtrer les élèves sans classe active si demandé
+        if withoutActiveClass:
+            students_without_class = []
+            for student in students:
+                has_active_enrollment = any(
+                    enrollment.status == EnrollmentStatus.active 
+                    for enrollment in student.enrollments
+                )
+                if not has_active_enrollment:
+                    students_without_class.append(student)
+            students = students_without_class
+        
         return [serialize_student(s, include_relations=True) for s in students]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch students: {str(e)}")
@@ -193,6 +325,8 @@ async def get_student(student_id: str, db: Session = Depends(get_db)):
 async def list_enrollments(
     classId: Optional[str] = None,
     studentId: Optional[str] = None,
+    status: Optional[str] = "active",  # Par défaut, on retourne uniquement les inscriptions actives
+    includeAll: Optional[bool] = False,  # Pour récupérer toutes les inscriptions si nécessaire
     db: Session = Depends(get_db)
 ):
     try:
@@ -208,6 +342,14 @@ async def list_enrollments(
         # Filter by studentId if provided
         if studentId:
             query = query.filter(Enrollment.student_id == studentId)
+        
+        # Filter by status (par défaut 'active', sauf si includeAll=True)
+        if not includeAll and status:
+            try:
+                from models import EnrollmentStatus as _ES
+            except Exception:
+                from .models import EnrollmentStatus as _ES
+            query = query.filter(Enrollment.status == _ES(status))
         
         enrollments = query.all()
         return [serialize_enrollment(e, include_class=True, include_student=True) for e in enrollments]
@@ -239,7 +381,8 @@ async def create_student(payload: dict = Body(...), db: Session = Depends(get_db
             'id': str(uuid4()),
             'first_name': payload['firstName'],
             'last_name': payload['lastName'],
-            'date_of_birth': datetime.fromisoformat(payload['dateOfBirth'].replace('Z', '+00:00')),
+            'date_of_birth': datetime.fromisoformat(payload['dateOfBirth'] if 'T' in payload['dateOfBirth'] else payload['dateOfBirth'] + 'T00:00:00+00:00'),
+            # Accepter la valeur string du genre (ex: "Masculin"). Le mapping Enum est géré par SQLAlchemy/DB.
             'gender': payload['gender'],
             'address': payload['address'],
             'parent_name': payload['parentName'],
@@ -248,12 +391,23 @@ async def create_student(payload: dict = Body(...), db: Session = Depends(get_db
             'program': payload['program'],
             'session': payload['session'],
             'secondary_level': payload['secondaryLevel'],
-            'status': payload.get('status', 'pending'),
+            'status': (StudentStatus(payload.get('status', 'pending')) if isinstance(payload.get('status', 'pending'), str) else payload.get('status', StudentStatus.pending)),
             'tuition_amount': float(payload['tuitionAmount']),
-            'tuition_paid': float(payload.get('tuitionPaid', 0)),
+            # Supporter valeur vide pour tuitionPaid
+            'tuition_paid': float(payload.get('tuitionPaid') or 0),
             'enrollment_date': datetime.utcnow(),
             'application_id': payload.get('applicationId'),
             'user_id': payload.get('userId'),
+            
+            # NOUVEAUX CHAMPS JSON du profil complet
+            'emergency_contact': payload.get('emergencyContact'),
+            'medical_info': payload.get('medicalInfo'),
+            'academic_history': payload.get('academicHistory'),
+            'preferences': payload.get('preferences'),
+            'profile_photo': payload.get('profilePhoto'),
+            'profile_completed': payload.get('profileCompleted', False),
+            'profile_completion_date': datetime.fromisoformat(payload['profileCompletionDate'].replace('Z', '+00:00')) if payload.get('profileCompletionDate') and payload['profileCompletionDate'] else None,
+            
             'created_at': datetime.utcnow(),
             'updated_at': datetime.utcnow()
         }
@@ -280,24 +434,92 @@ async def update_student(student_id: str, payload: dict = Body(...), db: Session
         # Garder les anciennes valeurs pour comparaison
         old_values = {
             'status': student.status.value if student.status else None,
-            'tuitionPaid': student.tuition_paid
+            'tuitionPaid': student.tuition_paid,
+            'tuitionAmount': student.tuition_amount  # Nécessaire pour calculer le solde correctement
         }
         
         allowed_fields = {'firstName': 'first_name', 'lastName': 'last_name', 'address': 'address', 
                          'parentName': 'parent_name', 'parentPhone': 'parent_phone', 'parentEmail': 'parent_email',
-                         'status': 'status', 'tuitionPaid': 'tuition_paid', 'program': 'program', 
-                         'session': 'session', 'secondaryLevel': 'secondary_level'}
+                         'status': 'status', 'tuitionAmount': 'tuition_amount',
+                         'program': 'program', 'session': 'session', 'secondaryLevel': 'secondary_level',
+                         # NOUVEAUX CHAMPS PROFIL COMPLET
+                         'emergencyContact': 'emergency_contact', 'medicalInfo': 'medical_info', 
+                         'academicHistory': 'academic_history', 'preferences': 'preferences',
+                         'profilePhoto': 'profile_photo', 'profileCompleted': 'profile_completed'}
         
         changes = []
+        # Champs JSON nécessitant une gestion spéciale
+        json_fields = {'emergencyContact', 'medicalInfo', 'academicHistory', 'preferences'}
+        
         for key, db_key in allowed_fields.items():
             if key in payload:
                 old_val = getattr(student, db_key, None)
                 new_val = payload[key]
-                if old_val != new_val:
-                    changes.append(f"{key}: {old_val} → {new_val}")
-                setattr(student, db_key, payload[key])
+                
+                # Normaliser les champs numériques
+                if db_key in ('tuition_paid', 'tuition_amount'):
+                    new_val = float(new_val) if (new_val is not None and new_val != '') else 0.0
+                
+                # Gestion spéciale pour les champs JSON
+                if key in json_fields:
+                    # Éviter la comparaison directe pour les JSON (peut causer des erreurs)
+                    if new_val is not None:
+                        changes.append(f"{key}: mise à jour")
+                    setattr(student, db_key, new_val)
+                else:
+                    # Gestion normale pour les champs simples
+                    # Mapper status string -> Enum
+                    if db_key == 'status' and isinstance(new_val, str):
+                        try:
+                            new_val = StudentStatus(new_val)
+                        except Exception:
+                            pass
+                    if old_val != new_val:
+                        changes.append(f"{key}: {old_val} → {new_val}")
+                    setattr(student, db_key, new_val)
+        
+        # Gérer profileCompletionDate séparément (conversion datetime)
+        if 'profileCompletionDate' in payload:
+            try:
+                if payload['profileCompletionDate']:
+                    student.profile_completion_date = datetime.fromisoformat(payload['profileCompletionDate'].replace('Z', '+00:00'))
+                else:
+                    student.profile_completion_date = None
+            except (ValueError, TypeError) as e:
+                # Ignorer les erreurs de conversion de datetime
+                print(f"Erreur conversion profileCompletionDate: {e}")
         
         student.updated_at = datetime.utcnow()
+        
+        # Si tuitionAmount a augmenté, créer un paiement pending pour le solde
+        if 'tuitionAmount' in payload:
+            new_tuition = float(payload['tuitionAmount'])
+            old_tuition = old_values.get('tuitionAmount', 0) or 0
+            current_paid = student.tuition_paid or 0
+            
+            # Si le nouveau montant est supérieur à l'ancien ET qu'il reste un solde
+            if new_tuition > old_tuition:
+                new_balance = new_tuition - current_paid
+                if new_balance > 0:
+                    # Créer un paiement pending pour le solde
+                    from uuid import uuid4
+                    pending_payment = Payment(
+                        id=str(uuid4()),
+                        student_id=student.id,
+                        amount=new_balance,
+                        payment_type='tuition',
+                        payment_method='pending',
+                        status=PaymentStatus.pending,
+                        notes=f'Solde restant après augmentation des frais de {old_tuition} à {new_tuition} $ CAD',
+                        payment_date=datetime.utcnow(),
+                        due_date=student.registration_deadline if student.registration_deadline else None,
+                        academic_year=student.session,  # Utiliser la session de l'étudiant
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
+                    db.add(pending_payment)
+                    changes.append(f"Paiement pending créé: {new_balance} $ CAD pour session {student.session}")
+        
         db.commit()
         db.refresh(student)
         
@@ -350,10 +572,34 @@ async def create_enrollment(payload: dict = Body(...), db: Session = Depends(get
         if 'studentId' not in payload or 'classId' not in payload:
             raise HTTPException(status_code=400, detail="Missing studentId or classId")
         
+        student_id = payload['studentId']
+        class_id = payload['classId']
+        
+        # VALIDATION: Vérifier si l'élève est déjà inscrit dans une classe active
+        try:
+            from models import EnrollmentStatus as _ES
+        except Exception:
+            from .models import EnrollmentStatus as _ES
+        
+        existing_enrollment = db.query(Enrollment).filter(
+            Enrollment.student_id == student_id,
+            Enrollment.status == _ES.active
+        ).first()
+        
+        if existing_enrollment:
+            # Récupérer les informations de la classe existante
+            existing_class = db.query(Class).filter(Class.id == existing_enrollment.class_id).first()
+            class_name = existing_class.name if existing_class else "une classe"
+            
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cet élève est déjà inscrit dans {class_name}. Un élève ne peut être inscrit que dans une seule classe à la fois."
+            )
+        
         enrollment_data = {
             'id': str(uuid4()),
-            'student_id': payload['studentId'],
-            'class_id': payload['classId'],
+            'student_id': student_id,
+            'class_id': class_id,
             'enrollment_date': datetime.utcnow(),
             'status': payload.get('status', 'active'),
             'grade': payload.get('grade'),
@@ -374,6 +620,60 @@ async def create_enrollment(payload: dict = Body(...), db: Session = Depends(get
         raise HTTPException(status_code=500, detail=f"Failed to create enrollment: {str(e)}")
 
 
+@app.put("/enrollments/{enrollment_id}")
+async def update_enrollment(enrollment_id: str, payload: dict = Body(...), db: Session = Depends(get_db)):
+    print(f"📝 Requête de mise à jour d'inscription reçue")
+    print(f"   ID inscription: {enrollment_id}")
+    print(f"   Payload: {payload}")
+    
+    try:
+        enrollment = db.query(Enrollment).filter(Enrollment.id == enrollment_id).first()
+        if not enrollment:
+            print(f"❌ Inscription non trouvée: {enrollment_id}")
+            raise HTTPException(status_code=404, detail="Enrollment not found")
+        
+        print(f"✅ Inscription trouvée - Statut actuel: {enrollment.status}")
+        
+        # Mettre à jour les champs fournis
+        if 'status' in payload:
+            try:
+                from models import EnrollmentStatus as _ES
+            except Exception:
+                from .models import EnrollmentStatus as _ES
+            
+            old_status = enrollment.status
+            new_status = payload['status']
+            print(f"🔄 Changement de statut: {old_status} → {new_status}")
+            
+            enrollment.status = _ES(new_status) if new_status else enrollment.status
+        
+        if 'grade' in payload:
+            enrollment.grade = payload.get('grade')
+            print(f"📊 Mise à jour de la note: {enrollment.grade}")
+        
+        if 'attendance' in payload:
+            enrollment.attendance = payload.get('attendance')
+            print(f"📅 Mise à jour de la présence: {enrollment.attendance}")
+        
+        enrollment.updated_at = datetime.utcnow()
+        
+        print(f"💾 Sauvegarde des modifications...")
+        db.commit()
+        db.refresh(enrollment)
+        
+        print(f"✅ Inscription mise à jour avec succès - Nouveau statut: {enrollment.status}")
+        
+        return serialize_enrollment(enrollment, include_class=True)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Erreur lors de la mise à jour: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update enrollment: {str(e)}")
+
+
 @app.post("/payments")
 async def create_payment(payload: dict = Body(...), db: Session = Depends(get_db)):
     try:
@@ -382,6 +682,7 @@ async def create_payment(payload: dict = Body(...), db: Session = Depends(get_db
             if field not in payload:
                 raise HTTPException(status_code=400, detail=f"Missing field: {field}")
         
+        payment_date = datetime.utcnow()
         payment_data = {
             'id': str(uuid4()),
             'student_id': payload['studentId'],
@@ -391,8 +692,9 @@ async def create_payment(payload: dict = Body(...), db: Session = Depends(get_db
             'status': payload.get('status', 'pending'),
             'transaction_id': payload.get('transactionId'),
             'notes': payload.get('notes'),
-            'payment_date': datetime.utcnow(),
+            'payment_date': payment_date,
             'due_date': datetime.fromisoformat(payload['dueDate'].replace('Z', '+00:00')) if payload.get('dueDate') else None,
+            'academic_year': get_session_from_date(payment_date),  # Déduire la session automatiquement
             'user_id': payload.get('userId'),
             'created_at': datetime.utcnow(),
             'updated_at': datetime.utcnow()
@@ -460,6 +762,75 @@ async def create_payment(payload: dict = Body(...), db: Session = Depends(get_db
         raise HTTPException(status_code=500, detail=f"Failed to create payment: {str(e)}")
 
 
+@app.put("/payments/{payment_id}")
+async def update_payment(payment_id: str, payload: dict = Body(...), db: Session = Depends(get_db)):
+    """
+    Mettre à jour un paiement existant
+    """
+    try:
+        # Récupérer le paiement existant
+        payment = db.query(Payment).filter(Payment.id == payment_id).first()
+        if not payment:
+            raise HTTPException(status_code=404, detail="Payment not found")
+        
+        # Sauvegarder l'ancien montant et statut pour ajuster tuition_paid si nécessaire
+        old_amount = payment.amount
+        old_status = payment.status
+        
+        # Mettre à jour les champs
+        if 'studentId' in payload:
+            payment.student_id = payload['studentId']
+        if 'amount' in payload:
+            payment.amount = float(payload['amount'])
+        if 'paymentType' in payload:
+            payment.payment_type = payload['paymentType']
+        if 'paymentMethod' in payload:
+            payment.payment_method = payload['paymentMethod']
+        if 'status' in payload:
+            payment.status = PaymentStatus(payload['status'])
+        if 'transactionId' in payload:
+            payment.transaction_id = payload['transactionId']
+        if 'notes' in payload:
+            payment.notes = payload['notes']
+        if 'paymentDate' in payload:
+            payment.payment_date = datetime.fromisoformat(payload['paymentDate'].replace('Z', '+00:00'))
+        if 'dueDate' in payload:
+            payment.due_date = datetime.fromisoformat(payload['dueDate'].replace('Z', '+00:00')) if payload['dueDate'] else None
+        
+        payment.updated_at = datetime.utcnow()
+        
+        # Mettre à jour la session si la date de paiement a changé
+        if 'paymentDate' in payload:
+            payment.academic_year = get_session_from_date(payment.payment_date)
+        elif not payment.academic_year:
+            # Si academic_year est vide, le calculer maintenant
+            payment.academic_year = get_session_from_date(payment.payment_date)
+        
+        # Ajuster tuition_paid si le montant ou le statut a changé et que c'est un paiement de scolarité
+        if payment.payment_type == 'tuition':
+            student = db.query(Student).filter(Student.id == payment.student_id).first()
+            if student:
+                # Retirer l'ancien montant si c'était payé
+                if old_status == PaymentStatus.paid:
+                    student.tuition_paid = (student.tuition_paid or 0) - old_amount
+                
+                # Ajouter le nouveau montant si c'est payé
+                if payment.status == PaymentStatus.paid:
+                    student.tuition_paid = (student.tuition_paid or 0) + payment.amount
+                
+                student.updated_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(payment)
+        
+        return serialize_payment(payment, include_student=False)
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update payment: {str(e)}")
+
+
 @app.post("/payments/create-payment-intent")
 async def create_payment_intent(payload: dict = Body(...), db: Session = Depends(get_db)):
     """
@@ -489,6 +860,7 @@ async def create_payment_intent(payload: dict = Body(...), db: Session = Depends
         )
         
         # Créer un enregistrement de paiement en attente dans la DB
+        payment_date = datetime.utcnow()
         payment_data = {
             'id': str(uuid4()),
             'student_id': payload['studentId'],
@@ -497,8 +869,10 @@ async def create_payment_intent(payload: dict = Body(...), db: Session = Depends
             'payment_method': 'card',
             'status': 'pending',
             'transaction_id': payment_intent.id,
+            'payment_date': payment_date,
+            'academic_year': get_session_from_date(payment_date),  # Déduire la session automatiquement
             'notes': f"Stripe Payment Intent: {payment_intent.id}",
-            'payment_date': datetime.utcnow(),
+            'user_id': payload.get('userId'),  # ID utilisateur si fourni
             'created_at': datetime.utcnow(),
             'updated_at': datetime.utcnow()
         }
@@ -696,10 +1070,614 @@ async def get_dashboard_stats(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to fetch dashboard stats: {str(e)}")
 
 
+@app.post("/students/link-by-email")
+async def link_student_by_parent_email(payload: dict = Body(...), db: Session = Depends(get_db)):
+    """
+    Lier un compte élève avec son profil existant basé sur l'email parent/tuteur.
+    Payload: { "parentEmail": "parent@email.com", "userId": "user123" }
+    """
+    try:
+        parent_email = payload.get('parentEmail')
+        user_id = payload.get('userId')
+        
+        if not parent_email or not user_id:
+            raise HTTPException(status_code=400, detail="parentEmail and userId are required")
+        
+        # Chercher un étudiant avec cet email parent
+        student = db.query(Student).filter(
+            Student.parent_email == parent_email,
+            Student.user_id.is_(None)  # Pas encore lié à un compte
+        ).first()
+        
+        if not student:
+            raise HTTPException(status_code=404, detail="No unlinkable student found with this parent email")
+        
+        # Lier l'étudiant au compte utilisateur
+        student.user_id = user_id
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"Student {student.first_name} {student.last_name} linked successfully",
+            "student": serialize_student(student, include_relations=True)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to link student: {str(e)}")
+
+
+@app.get("/students/by-email/{parent_email}")
+async def get_student_by_parent_email(parent_email: str, db: Session = Depends(get_db)):
+    """
+    Récupérer les élèves associés à un email parent pour la liaison automatique.
+    """
+    try:
+        students = db.query(Student).filter(Student.parent_email == parent_email).all()
+        return [serialize_student(s, include_relations=True) for s in students]
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch students by email: {str(e)}")
+
+
+@app.post("/students/link-by-student-info")
+async def link_student_by_student_info(payload: dict = Body(...), db: Session = Depends(get_db)):
+    """
+    Lier un compte élève avec son profil existant basé sur ses informations personnelles.
+    Payload: { "firstName": "John", "lastName": "Doe", "dateOfBirth": "2010-01-01", "userId": "user123" }
+    """
+    try:
+        first_name = payload.get('firstName')
+        last_name = payload.get('lastName')
+        date_of_birth = payload.get('dateOfBirth')
+        user_id = payload.get('userId')
+        
+        if not all([first_name, last_name, date_of_birth, user_id]):
+            raise HTTPException(status_code=400, detail="firstName, lastName, dateOfBirth and userId are required")
+        
+        # Convertir la date de naissance
+        try:
+            dob = datetime.fromisoformat(date_of_birth.replace('Z', '+00:00'))
+        except:
+            dob = datetime.strptime(date_of_birth, '%Y-%m-%d')
+        
+        # Chercher un étudiant avec ces informations
+        student = db.query(Student).filter(
+            Student.first_name.ilike(f"%{first_name}%"),
+            Student.last_name.ilike(f"%{last_name}%"),
+            Student.date_of_birth == dob.date(),
+            Student.user_id.is_(None)  # Pas encore lié à un compte
+        ).first()
+        
+        if not student:
+            raise HTTPException(status_code=404, detail="No unlinkable student found with these informations")
+        
+        # Lier l'étudiant au compte utilisateur
+        student.user_id = user_id
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"Student {student.first_name} {student.last_name} linked successfully",
+            "student": serialize_student(student, include_relations=True)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to link student: {str(e)}")
+
+
+@app.get("/students/search-for-link")
+async def search_students_for_link(
+    firstName: Optional[str] = None,
+    lastName: Optional[str] = None,
+    dateOfBirth: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Rechercher les élèves non liés pour permettre la liaison par l'élève lui-même.
+    """
+    try:
+        query = db.query(Student).filter(Student.user_id.is_(None))
+        
+        if firstName:
+            query = query.filter(Student.first_name.ilike(f"%{firstName}%"))
+        if lastName:
+            query = query.filter(Student.last_name.ilike(f"%{lastName}%"))
+        if dateOfBirth:
+            try:
+                dob = datetime.fromisoformat(dateOfBirth.replace('Z', '+00:00'))
+            except:
+                dob = datetime.strptime(dateOfBirth, '%Y-%m-%d')
+            query = query.filter(Student.date_of_birth == dob.date())
+        
+        students = query.all()
+        
+        # Retourner seulement les informations nécessaires pour l'identification
+        return [{
+            "id": s.id,
+            "firstName": s.first_name,
+            "lastName": s.last_name,
+            "dateOfBirth": s.date_of_birth.isoformat() if s.date_of_birth else None,
+            "program": s.program,
+            "session": s.session
+        } for s in students]
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to search students: {str(e)}")
+
+
+@app.post("/students/{student_id}/photo")
+async def upload_student_photo(
+    student_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload une photo de profil pour un élève (utilisable par l'élève et l'admin)
+    """
+    print(f"📸 Requête d'upload de photo reçue pour l'élève: {student_id}")
+    print(f"📁 Fichier: {file.filename}, Type: {file.content_type}")
+    
+    try:
+        # Vérifier que l'élève existe
+        student = db.query(Student).filter(Student.id == student_id).first()
+        if not student:
+            print(f"❌ Élève non trouvé: {student_id}")
+            raise HTTPException(status_code=404, detail="Student not found")
+        
+        print(f"✅ Élève trouvé: {student.first_name} {student.last_name}")
+        
+        # Vérifier le type de fichier
+        allowed_types = ["image/jpeg", "image/jpg", "image/png", "image/webp"]
+        if file.content_type not in allowed_types:
+            print(f"❌ Type de fichier non supporté: {file.content_type}")
+            raise HTTPException(status_code=400, detail="Type de fichier non supporté. Utilisez JPG, PNG ou WebP")
+        
+        print(f"✅ Type de fichier valide: {file.content_type}")
+        
+        # Vérifier la taille (max 5MB)
+        file_content = await file.read()
+        file_size = len(file_content)
+        print(f"📊 Taille du fichier: {file_size} bytes ({file_size / 1024 / 1024:.2f} MB)")
+        
+        if file_size > 5 * 1024 * 1024:  # 5MB
+            print(f"❌ Fichier trop volumineux: {file_size} bytes")
+            raise HTTPException(status_code=400, detail="Fichier trop volumineux. Maximum 5MB")
+        
+        # Convertir en base64 pour stockage
+        file_extension = file.content_type.split('/')[-1]
+        if file_extension == 'jpeg':
+            file_extension = 'jpg'
+        
+        base64_image = base64.b64encode(file_content).decode('utf-8')
+        data_url = f"data:{file.content_type};base64,{base64_image}"
+        
+        print(f"✅ Image convertie en base64 (taille: {len(data_url)} caractères)")
+        
+        # Mettre à jour la photo de profil de l'élève
+        student.profile_photo = data_url
+        student.updated_at = datetime.utcnow()
+        
+        print(f"💾 Sauvegarde dans la base de données...")
+        db.commit()
+        print(f"✅ Photo sauvegardée avec succès pour {student.first_name} {student.last_name}")
+        
+        return {
+            "success": True,
+            "message": "Photo de profil mise à jour avec succès",
+            "photoUrl": data_url[:100] + "..." if len(data_url) > 100 else data_url,  # Aperçu tronqué
+            "student": serialize_student(student, include_relations=False)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Erreur lors de l'upload: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to upload photo: {str(e)}")
+
+
+@app.post("/enrollments/{enrollment_id}/grades")
+async def update_student_grades(
+    enrollment_id: str,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Mettre à jour les notes détaillées d'un élève selon le système québécois
+    """
+    try:
+        enrollment = db.query(Enrollment).filter(Enrollment.id == enrollment_id).first()
+        if not enrollment:
+            raise HTTPException(status_code=404, detail="Enrollment not found")
+        
+        # Structure des notes québécoises
+        if 'courseGrades' in payload:
+            enrollment.course_grades = payload['courseGrades']
+        if 'quebecReportCard' in payload:
+            enrollment.quebec_report_card = payload['quebecReportCard']
+        if 'competenciesAssessment' in payload:
+            enrollment.competencies_assessment = payload['competenciesAssessment']
+        if 'academicYear' in payload:
+            enrollment.academic_year = payload['academicYear']
+        if 'semester' in payload:
+            enrollment.semester = payload['semester']
+        if 'grade' in payload:
+            enrollment.grade = float(payload['grade'])
+        if 'attendance' in payload:
+            enrollment.attendance = float(payload['attendance'])
+        
+        enrollment.updated_at = datetime.utcnow()
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": "Notes mises à jour avec succès",
+            "enrollment": serialize_enrollment(enrollment, include_class=True, include_student=False)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update grades: {str(e)}")
+
+
+# ============================================
+# ENDPOINTS OPTIMISÉS POUR DASHBOARD ADMIN
+# ============================================
+
+@app.get("/admin/dashboard/stats")
+async def get_admin_dashboard_stats(db: Session = Depends(get_db)):
+    """
+    Endpoint optimisé pour récupérer rapidement les statistiques du dashboard admin
+    """
+    try:
+        import httpx
+        
+        # Compter les étudiants (simple COUNT)
+        total_students = db.query(Student).count()
+        print(f"📊 Total étudiants: {total_students}")
+        
+        # Compter les classes (utilise le modèle Class existant)
+        try:
+            total_classes = db.query(Class).count()
+            print(f"📊 Total classes: {total_classes}")
+        except Exception as class_error:
+            print(f"⚠️ Erreur lors du comptage des classes: {class_error}")
+            total_classes = 0
+        
+        # Compter les paiements en attente (optimisé)
+        # Note: PaymentStatus n'a que: pending, paid, cancelled, refunded
+        pending_payments_result = db.query(func.sum(Payment.amount)).filter(
+            Payment.status == PaymentStatus.pending
+        ).scalar()
+        pending_payments_amount = float(pending_payments_result or 0)
+        print(f"📊 Paiements en attente: {pending_payments_amount}")
+        
+        # Récupérer les applications depuis le service Applications
+        recent_applications = []
+        pending_applications = 0
+        
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                response = await client.get("http://localhost:4002/applications")
+                if response.status_code == 200:
+                    applications = response.json()
+                    # Filtrer les applications en attente
+                    pending_apps = [
+                        app for app in applications 
+                        if app.get('status', '').lower() in ['pending', 'submitted', 'en attente', 'waiting']
+                    ]
+                    pending_applications = len(pending_apps)
+                    recent_applications = pending_apps[:3]  # Les 3 plus récentes
+        except Exception as e:
+            print(f"⚠️ Erreur lors de la récupération des applications: {e}")
+            # Continuer même si le service applications n'est pas disponible
+        
+        return {
+            "success": True,
+            "stats": {
+                "totalStudents": total_students,
+                "pendingApplications": pending_applications,
+                "totalClasses": total_classes,
+                "pendingPayments": pending_payments_amount,
+                "recentApplications": recent_applications
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch dashboard stats: {str(e)}")
+
+
+@app.get("/admin/classes")
+async def list_classes_admin(db: Session = Depends(get_db)):
+    """
+    Endpoint pour récupérer les classes avec le nombre d'inscriptions actives
+    """
+    try:
+        classes = db.query(Class).options(joinedload(Class.enrollments)).order_by(Class.created_at.desc()).all()
+        
+        result = []
+        for c in classes:
+            class_dict = serialize_class(c)
+            # Ajouter les enrollments actifs pour que le frontend puisse calculer enrollment_count
+            active_enrollments = [
+                {"id": e.id, "status": e.status.value if e.status else None}
+                for e in c.enrollments
+                if e.status and e.status.value == 'active'
+            ]
+            class_dict["enrollments"] = active_enrollments
+            result.append(class_dict)
+        
+        return result
+    except Exception as e:
+        print(f"⚠️ Erreur lors de la récupération des classes: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch classes: {str(e)}")
+
+
+@app.post("/admin/payments/update-sessions")
+async def update_payment_sessions(db: Session = Depends(get_db)):
+    """
+    Mettre à jour rétroactivement les sessions de tous les paiements existants
+    en fonction de leur date de paiement
+    """
+    try:
+        # Récupérer tous les paiements
+        payments = db.query(Payment).all()
+        updated_count = 0
+        
+        for payment in payments:
+            # Calculer la session à partir de la date de paiement
+            if payment.payment_date:
+                old_session = payment.academic_year
+                new_session = get_session_from_date(payment.payment_date)
+                
+                if old_session != new_session:
+                    payment.academic_year = new_session
+                    payment.updated_at = datetime.utcnow()
+                    updated_count += 1
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"{updated_count} paiements mis à jour sur {len(payments)} total",
+            "updated": updated_count,
+            "total": len(payments)
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update payment sessions: {str(e)}")
+
+
+@app.get("/admin/students/count")
+async def get_students_count(
+    status: Optional[str] = None,
+    withoutActiveClass: Optional[bool] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Endpoint optimisé pour compter les étudiants sans charger toutes leurs données
+    """
+    try:
+        query = db.query(Student)
+        
+        if status:
+            try:
+                from models import StudentStatus as _SS
+            except Exception:
+                from .models import StudentStatus as _SS
+            enum_status = _SS(status) if status else None
+            if enum_status:
+                query = query.filter(Student.status == enum_status)
+        
+        if withoutActiveClass:
+            # Utiliser une sous-requête SQL pour l'efficacité
+            active_enrollments = db.query(Enrollment.student_id).filter(
+                Enrollment.status == EnrollmentStatus.active
+            ).subquery()
+            query = query.filter(~Student.id.in_(active_enrollments))
+        
+        count = query.count()
+        return {"count": count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to count students: {str(e)}")
+
+
+@app.post("/admin/demo/create-sample-data")
+async def create_sample_data(db: Session = Depends(get_db)):
+    """
+    Créer des données de démonstration pour tester le dashboard
+    """
+    try:
+        # Vérifier si des données existent déjà
+        existing_students = db.query(Student).count()
+        if existing_students > 0:
+            return {"message": "Des données existent déjà", "students": existing_students}
+        
+        # Créer quelques classes
+        class1 = Class(
+            id=str(uuid4()),
+            name="Mathématiques 3e secondaire",
+            level="3e secondaire",
+            capacity=25,
+            current_students=0,
+            session="Automne 2024",
+            teacher_name="M. Dupont"
+        )
+        
+        class2 = Class(
+            id=str(uuid4()),
+            name="Français 4e secondaire", 
+            level="4e secondaire",
+            capacity=20,
+            current_students=0,
+            session="Automne 2024",
+            teacher_name="Mme Martin"
+        )
+        
+        db.add(class1)
+        db.add(class2)
+        db.commit()
+        
+        # Créer quelques étudiants
+        student1 = Student(
+            id=str(uuid4()),
+            first_name="Jean",
+            last_name="Tremblay",
+            date_of_birth=datetime(2008, 5, 15),
+            gender=Gender.Masculin,
+            address="123 Rue Principale, Montréal",
+            parent_name="Marie Tremblay",
+            parent_phone="514-123-4567",
+            parent_email="marie.tremblay@email.com",
+            program="Programme régulier",
+            session="Automne 2024",
+            secondary_level="3e secondaire",
+            status=StudentStatus.active,
+            tuition_amount=2500.0,
+            tuition_paid=1000.0
+        )
+        
+        student2 = Student(
+            id=str(uuid4()),
+            first_name="Sophie",
+            last_name="Lavoie",
+            date_of_birth=datetime(2007, 8, 22),
+            gender=Gender.Feminin,
+            address="456 Boulevard St-Laurent, Québec",
+            parent_name="Pierre Lavoie",
+            parent_phone="418-987-6543",
+            parent_email="pierre.lavoie@email.com",
+            program="Programme enrichi",
+            session="Automne 2024",
+            secondary_level="4e secondaire", 
+            status=StudentStatus.active,
+            tuition_amount=3000.0,
+            tuition_paid=1500.0
+        )
+        
+        db.add(student1)
+        db.add(student2)
+        db.commit()
+        
+        # Créer quelques inscriptions
+        enrollment1 = Enrollment(
+            id=str(uuid4()),
+            student_id=student1.id,
+            class_id=class1.id,
+            status=EnrollmentStatus.active
+        )
+        
+        enrollment2 = Enrollment(
+            id=str(uuid4()),
+            student_id=student2.id,
+            class_id=class2.id,
+            status=EnrollmentStatus.active
+        )
+        
+        db.add(enrollment1)
+        db.add(enrollment2)
+        
+        # Créer quelques paiements
+        payment1 = Payment(
+            id=str(uuid4()),
+            student_id=student1.id,
+            amount=1500.0,
+            payment_type=PaymentType.tuition,
+            payment_method="Virement bancaire",
+            status=PaymentStatus.pending,
+            academic_year="2024-2025"
+        )
+        
+        payment2 = Payment(
+            id=str(uuid4()),
+            student_id=student2.id,
+            amount=1500.0,
+            payment_type=PaymentType.tuition,
+            payment_method="Carte de crédit",
+            status=PaymentStatus.pending,
+            academic_year="2024-2025"
+        )
+        
+        db.add(payment1)
+        db.add(payment2)
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": "Données de démonstration créées avec succès",
+            "created": {
+                "students": 2,
+                "classes": 2,
+                "enrollments": 2,
+                "payments": 2
+            }
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create sample data: {str(e)}")
+
+
+# ============================================
+# ENDPOINTS DE MAINTENANCE (ADMIN)
+# ============================================
+
+@app.post("/admin/maintenance/cleanup-enrollments")
+async def admin_cleanup_enrollments(db: Session = Depends(get_db)):
+    """
+    Endpoint admin pour nettoyer manuellement les inscriptions en double
+    """
+    try:
+        from db_maintenance import cleanup_duplicate_enrollments, get_enrollment_statistics
+    except ImportError:
+        from .db_maintenance import cleanup_duplicate_enrollments, get_enrollment_statistics
+    
+    try:
+        cleanup_result = cleanup_duplicate_enrollments(db)
+        stats = get_enrollment_statistics(db)
+        
+        return {
+            "success": True,
+            "cleanup": cleanup_result,
+            "statistics": stats
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to cleanup enrollments: {str(e)}")
+
+
+@app.get("/admin/maintenance/enrollment-stats")
+async def admin_enrollment_stats(db: Session = Depends(get_db)):
+    """
+    Endpoint admin pour obtenir les statistiques des inscriptions
+    """
+    try:
+        from db_maintenance import get_enrollment_statistics
+    except ImportError:
+        from .db_maintenance import get_enrollment_statistics
+    
+    try:
+        stats = get_enrollment_statistics(db)
+        return {
+            "success": True,
+            "statistics": stats
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get statistics: {str(e)}")
+
+
 # Lancement recommandé:
 #   uvicorn app.main:app --port %STUDENTS_PORT%
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("STUDENTS_PORT", 4002))
+    port = int(os.getenv("STUDENTS_PORT", 4003))
     uvicorn.run(app, host="0.0.0.0", port=port)

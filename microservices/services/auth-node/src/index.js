@@ -27,7 +27,7 @@ app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'auth-node' 
 // SIGN UP
 // ============================================
 app.post(
-  '/signup',
+  '/api/auth/signup',
   [
     body('email').isEmail().withMessage('Valid email is required'),
     body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
@@ -93,7 +93,7 @@ app.post(
 // SIGN IN
 // ============================================
 app.post(
-  '/signin',
+  '/api/auth/signin',
   [
     body('email').isEmail().withMessage('Valid email is required'),
     body('password').notEmpty().withMessage('Password is required'),
@@ -148,7 +148,7 @@ app.post(
 // ============================================
 // GET CURRENT USER
 // ============================================
-app.get('/me', async (req, res) => {
+app.get('/api/auth/me', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
 

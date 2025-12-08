@@ -32,16 +32,52 @@ export default function PaymentForm({ onClose, onSuccess, payment }: PaymentForm
 
   const fetchStudents = async () => {
     const data = await StudentsApi.list();
-    if (Array.isArray(data)) setStudents((data as Student[]).filter(s => s.status === 'active'));
+    // Afficher tous les élèves actifs et en attente (pas les inactifs)
+    if (Array.isArray(data)) {
+      setStudents((data as Student[]).filter(s => s.status === 'active' || s.status === 'pending'));
+    }
   };
 
-  const handleStudentChange = (studentId: string) => {
+  const handleStudentChange = async (studentId: string) => {
     setFormData({ ...formData, studentId });
-    const student = students.find(s => s.id === studentId);
-    setSelectedStudent(student || null);
-    if (student) {
-      const balance = (student.tuitionAmount || 0) - (student.tuitionPaid || 0);
-      setFormData(prev => ({ ...prev, amount: balance > 0 ? balance : 0 }));
+    
+    // Recharger les données fraîches de l'étudiant depuis le serveur
+    try {
+      const freshData = await StudentsApi.list();
+      const freshStudents = Array.isArray(freshData) ? (freshData as Student[]).filter(s => s.status === 'active' || s.status === 'pending') : [];
+      setStudents(freshStudents);
+      
+      const student = freshStudents.find(s => s.id === studentId);
+      setSelectedStudent(student || null);
+      
+      if (student) {
+        // Utiliser totalBalance si disponible, sinon calculer à partir de tuition
+        const balance = (student as any).totalBalance !== undefined 
+          ? (student as any).totalBalance 
+          : (student.tuitionAmount || 0) - (student.tuitionPaid || 0);
+        
+        console.log('💰 Données fraîches de l\'étudiant:', {
+          nom: `${student.firstName} ${student.lastName}`,
+          fraisScolarite: student.tuitionAmount,
+          payeScolarite: student.tuitionPaid,
+          totalPending: (student as any).totalPending,
+          totalPaid: (student as any).totalPaid,
+          soldeTotal: balance
+        });
+        setFormData(prev => ({ ...prev, amount: balance > 0 ? balance : 0 }));
+      }
+    } catch (error) {
+      console.error('Erreur lors du rechargement des données:', error);
+      // Fallback sur les données en cache
+      const student = students.find(s => s.id === studentId);
+      setSelectedStudent(student || null);
+      if (student) {
+        // Utiliser totalBalance si disponible
+        const balance = (student as any).totalBalance !== undefined 
+          ? (student as any).totalBalance 
+          : (student.tuitionAmount || 0) - (student.tuitionPaid || 0);
+        setFormData(prev => ({ ...prev, amount: balance > 0 ? balance : 0 }));
+      }
     }
   };
 
@@ -198,18 +234,20 @@ export default function PaymentForm({ onClose, onSuccess, payment }: PaymentForm
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Montant (CAD) *
               </label>
-              <input
-                type="number"
+              <select
                 required
-                min="0"
-                step="0.01"
                 value={formData.amount}
                 onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+              >
+                <option value="">Sélectionner le montant</option>
+                {[50, 100, 150, 200, 250, 300, 400, 500, 600, 750, 1000, 1250, 1500, 2000, 2500, 3000, 4000, 5000].map(amount => (
+                  <option key={amount} value={amount}>{amount.toLocaleString('fr-CA')} $ CAD</option>
+                ))}
+              </select>
               {paymentMode === 'stripe' && (
                 <p className="text-xs text-gray-500 mt-1">
-                  💡 Montant initial basé sur le solde, modifiable au besoin. Devise : dollars canadiens (CAD).
+                  💡 Sélectionnez le montant à payer. Devise : dollars canadiens (CAD).
                 </p>
               )}
             </div>

@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Student } from '../types';
 import { StudentsApi } from '../lib/api';
-import { UserPlus, X } from 'lucide-react';
+import { UserPlus, X, Camera, Upload, Shield } from 'lucide-react';
 
 interface StudentFormProps {
   onClose: () => void;
@@ -36,9 +36,35 @@ export default function StudentForm({ onClose, onSuccess, student }: StudentForm
     tuitionAmount: (student as any)?.tuitionAmount || '',
     tuitionPaid: (student as any)?.tuitionPaid || '',
     status: (student as any)?.status || 'active',
+    
+    // NOUVEAUX CHAMPS - Contact d'urgence
+    emergencyContactName: (student as any)?.emergencyContact?.name || '',
+    emergencyContactPhone: (student as any)?.emergencyContact?.phone || '',
+    
+    // NOUVEAUX CHAMPS - Informations médicales
+    medicalAllergies: (student as any)?.medicalInfo?.allergies?.[0] || '',
+    medicalMedications: (student as any)?.medicalInfo?.medications?.[0] || '',
+    medicalConditions: (student as any)?.medicalInfo?.medicalConditions?.[0] || '',
+    medicalNotes: (student as any)?.medicalInfo?.emergencyMedicalNotes || '',
+    
+    // NOUVEAUX CHAMPS - Historique académique  
+    academicPreviousSchool: (student as any)?.academicHistory?.previousSchool || '',
+    academicLastGrade: (student as any)?.academicHistory?.lastGrade || '',
+    academicTransferReason: (student as any)?.academicHistory?.transferReason || '',
+    academicSpecialNeeds: (student as any)?.academicHistory?.specialNeeds?.[0] || '',
+    academicLanguages: (student as any)?.academicHistory?.languages?.join(', ') || '',
+    
+    // NOUVEAUX CHAMPS - Préférences et objectifs
+    preferencesGoals: (student as any)?.preferences?.goals?.join(', ') || '',
+    preferencesInterests: (student as any)?.preferences?.interests?.join(', ') || '',
+    preferencesExtracurriculars: (student as any)?.preferences?.extracurriculars?.join(', ') || '',
+    preferencesLearningStyle: (student as any)?.preferences?.learningStyle || '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [currentPhoto, setCurrentPhoto] = useState((student as any)?.profilePhoto || '');
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,10 +72,104 @@ export default function StudentForm({ onClose, onSuccess, student }: StudentForm
     setError('');
 
     try {
+      // Validation des champs requis
+      if (!formData.firstName || !formData.lastName || !formData.dateOfBirth || !formData.gender || 
+          !formData.address || !formData.parentName || !formData.parentPhone || !formData.program || 
+          !formData.session || !formData.secondaryLevel || !formData.tuitionAmount) {
+        throw new Error('Veuillez remplir tous les champs obligatoires');
+      }
+      // Transformer les données pour inclure le contact d'urgence et infos médicales
+      // Convertir la photo en base64 si un fichier a été sélectionné
+      let photoBase64 = currentPhoto;
+      if (photoFile) {
+        photoBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(photoFile);
+        });
+      }
+
+      const transformedData = {
+        ...formData,
+        // Structurer le contact d'urgence
+        emergencyContact: formData.emergencyContactName ? {
+          name: formData.emergencyContactName,
+          phone: formData.emergencyContactPhone
+        } : null,
+        
+        // Structurer les informations médicales (format arrays selon interface)
+        medicalInfo: (formData.medicalAllergies || formData.medicalMedications || formData.medicalConditions || formData.medicalNotes) ? {
+          allergies: formData.medicalAllergies ? [formData.medicalAllergies] : [],
+          medications: formData.medicalMedications ? [formData.medicalMedications] : [],
+          medicalConditions: formData.medicalConditions ? [formData.medicalConditions] : [],
+          emergencyMedicalNotes: formData.medicalNotes || ''
+        } : null,
+        
+        // Structurer l'historique académique
+        academicHistory: (formData.academicPreviousSchool || formData.academicLastGrade || formData.academicTransferReason || formData.academicSpecialNeeds || formData.academicLanguages) ? {
+          previousSchool: formData.academicPreviousSchool || '',
+          lastGrade: formData.academicLastGrade || '',
+          transferReason: formData.academicTransferReason || '',
+          specialNeeds: formData.academicSpecialNeeds ? [formData.academicSpecialNeeds] : [],
+          languages: formData.academicLanguages ? formData.academicLanguages.split(',').map((lang: string) => lang.trim()).filter((lang: string) => lang) : []
+        } : null,
+        
+        // Structurer les préférences et objectifs
+        preferences: (formData.preferencesGoals || formData.preferencesInterests || formData.preferencesExtracurriculars || formData.preferencesLearningStyle) ? {
+          goals: formData.preferencesGoals ? formData.preferencesGoals.split(',').map((goal: string) => goal.trim()).filter((goal: string) => goal) : [],
+          interests: formData.preferencesInterests ? formData.preferencesInterests.split(',').map((interest: string) => interest.trim()).filter((interest: string) => interest) : [],
+          extracurriculars: formData.preferencesExtracurriculars ? formData.preferencesExtracurriculars.split(',').map((activity: string) => activity.trim()).filter((activity: string) => activity) : [],
+          learningStyle: formData.preferencesLearningStyle as 'visuel' | 'auditif' | 'kinesthésique' | 'mixte' || ''
+        } : null,
+        
+        // Calculer completion du profil (contact urgence + au moins 2 autres sections)
+        profileCompleted: !!(formData.emergencyContactName && (
+          [
+            !!(formData.medicalAllergies || formData.medicalMedications || formData.medicalConditions),
+            !!(formData.academicPreviousSchool || formData.academicLastGrade),
+            !!(formData.preferencesGoals || formData.preferencesInterests || formData.preferencesLearningStyle)
+          ].filter(Boolean).length >= 1
+        )),
+        profileCompletionDate: (formData.emergencyContactName && (
+          [
+            !!(formData.medicalAllergies || formData.medicalMedications || formData.medicalConditions),
+            !!(formData.academicPreviousSchool || formData.academicLastGrade),
+            !!(formData.preferencesGoals || formData.preferencesInterests || formData.preferencesLearningStyle)
+          ].filter(Boolean).length >= 1
+        )) ? new Date().toISOString() : null
+      };
+      
+      // Retirer les champs temporaires
+      const { 
+        emergencyContactName, 
+        emergencyContactPhone, 
+        medicalAllergies, 
+        medicalMedications, 
+        medicalConditions, 
+        medicalNotes,
+        academicPreviousSchool,
+        academicLastGrade,
+        academicTransferReason,
+        academicSpecialNeeds,
+        academicLanguages,
+        preferencesGoals,
+        preferencesInterests,
+        preferencesExtracurriculars,
+        preferencesLearningStyle,
+        ...finalData 
+      } = transformedData;
+      
+      // Ajouter la photo au payload final
+      const dataWithPhoto = {
+        ...finalData,
+        profilePhoto: photoBase64 || null
+      };
+      
       if (student) {
-        await StudentsApi.update(String(student.id), formData);
+        await StudentsApi.update(String(student.id), dataWithPhoto);
       } else {
-        await StudentsApi.create(formData);
+        await StudentsApi.create(dataWithPhoto);
       }
       onSuccess();
     } catch (err) {
@@ -60,8 +180,19 @@ export default function StudentForm({ onClose, onSuccess, student }: StudentForm
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+    <div 
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+      onClick={(e) => {
+        // Fermer seulement si on clique sur l'overlay (pas sur le contenu)
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div 
+        className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between">
           <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
             <UserPlus className="w-5 h-5" />
@@ -81,6 +212,89 @@ export default function StudentForm({ onClose, onSuccess, student }: StudentForm
               {error}
             </div>
           )}
+
+          {/* Photo de profil */}
+          <div className="border border-gray-200 rounded-lg p-4 mb-6 bg-gradient-to-r from-blue-50 to-indigo-50">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <Camera className="w-5 h-5 text-blue-600" />
+              Photo de profil {!student && <span className="text-sm font-normal text-gray-500">(optionnel)</span>}
+            </h3>
+            <div className="flex flex-col items-center gap-4">
+              {/* Aperçu de la photo */}
+              <div className="relative">
+                <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-white shadow-lg bg-gray-100 flex items-center justify-center">
+                  {currentPhoto || (photoFile && URL.createObjectURL(photoFile)) ? (
+                    <img 
+                      src={photoFile ? URL.createObjectURL(photoFile) : currentPhoto} 
+                      alt="Photo de profil" 
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center text-gray-400">
+                      <Camera className="w-8 h-8 mb-1" />
+                      <span className="text-xs">Aucune photo</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Input fichier caché */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/jpg,image/png,image/webp"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    // Validation
+                    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+                    if (!allowedTypes.includes(file.type)) {
+                      setError('Type de fichier non supporté. Utilisez JPG, PNG ou WebP');
+                      return;
+                    }
+                    if (file.size > 5 * 1024 * 1024) {
+                      setError('Fichier trop volumineux. Maximum 5MB');
+                      return;
+                    }
+                    setPhotoFile(file);
+                    setError('');
+                  }
+                }}
+                className="hidden"
+              />
+
+              {/* Boutons */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <Upload className="w-4 h-4" />
+                  {currentPhoto || photoFile ? 'Changer la photo' : 'Ajouter une photo'}
+                </button>
+                {(currentPhoto || photoFile) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhotoFile(null);
+                      setCurrentPhoto('');
+                      if (fileInputRef.current) {
+                        fileInputRef.current.value = '';
+                      }
+                    }}
+                    className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
+                  >
+                    Supprimer
+                  </button>
+                )}
+              </div>
+
+              <p className="text-xs text-gray-500 text-center">
+                Formats acceptés: JPG, PNG, WebP • Taille max: 5MB
+              </p>
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -213,26 +427,28 @@ export default function StudentForm({ onClose, onSuccess, student }: StudentForm
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Frais de scolarité (CAD)
                 </label>
-                <input
-                  type="number"
-                  min="0"
+                <select
                   value={formData.tuitionAmount}
                   onChange={(e) => setFormData({ ...formData, tuitionAmount: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
+                >
+                  <option value="">Sélectionner le montant</option>
+                  {[500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 6000, 7000, 8000, 9000, 10000].map(amount => (
+                    <option key={amount} value={amount}>{amount.toLocaleString('fr-CA')} $ CAD</option>
+                  ))}
+                </select>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Montant payé (CAD)
+                  Montant payé (CAD) - Lecture seule
                 </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={formData.tuitionPaid}
-                  onChange={(e) => setFormData({ ...formData, tuitionPaid: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
+                <div className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-700 font-semibold">
+                  {formData.tuitionPaid ? `${Number(formData.tuitionPaid).toLocaleString('fr-CA')} $ CAD` : '0 $ CAD (Non payé)'}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  💡 Ce montant est calculé automatiquement à partir des paiements. Utilisez l'onglet "Paiements" pour enregistrer un paiement.
+                </p>
               </div>
             </div>
           </div>
@@ -298,6 +514,272 @@ export default function StudentForm({ onClose, onSuccess, student }: StudentForm
                   <option value="graduated">Diplômé</option>
                 </select>
               </div>
+            </div>
+          </div>
+
+          {/* NOUVELLE SECTION - Contact d'urgence */}
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+              <Shield className="w-4 h-4 text-orange-600" />
+              Contact d'urgence
+            </h3>
+            <p className="text-xs text-gray-600 mb-4">
+              Personne à contacter en cas d'urgence (autre que le parent principal)
+            </p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Nom complet *
+                </label>
+                <input
+                  type="text"
+                  value={formData.emergencyContactName}
+                  onChange={(e) => setFormData({ ...formData, emergencyContactName: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Grand-parent, oncle, tante..."
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Téléphone *
+                </label>
+                <input
+                  type="tel"
+                  value={formData.emergencyContactPhone}
+                  onChange={(e) => setFormData({ ...formData, emergencyContactPhone: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="(xxx) xxx-xxxx"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* NOUVELLE SECTION - Informations médicales */}
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+              <span className="text-red-600">🏥</span>
+              Informations médicales (optionnel)
+            </h3>
+            <p className="text-xs text-gray-600 mb-4">
+              Informations importantes pour la sécurité et le bien-être de l'élève
+            </p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Allergies connues
+                </label>
+                <input
+                  type="text"
+                  value={formData.medicalAllergies}
+                  onChange={(e) => setFormData({ ...formData, medicalAllergies: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Allergies alimentaires, médicamenteuses..."
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Médicaments réguliers
+                </label>
+                <input
+                  type="text"
+                  value={formData.medicalMedications}
+                  onChange={(e) => setFormData({ ...formData, medicalMedications: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Médicaments pris quotidiennement..."
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Conditions médicales
+                </label>
+                <input
+                  type="text"
+                  value={formData.medicalConditions}
+                  onChange={(e) => setFormData({ ...formData, medicalConditions: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Asthme, diabète, autres conditions..."
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Notes supplémentaires
+                </label>
+                <input
+                  type="text"
+                  value={formData.medicalNotes}
+                  onChange={(e) => setFormData({ ...formData, medicalNotes: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Autres informations importantes..."
+                />
+              </div>
+            </div>
+            
+            <div className="mt-3 p-2 bg-blue-50 rounded-lg">
+              <p className="text-xs text-blue-800">
+                <strong>💡 Conseil :</strong> Ces informations restent confidentielles et ne sont accessibles qu'au personnel médical et administratif autorisé.
+              </p>
+            </div>
+          </div>
+
+          {/* NOUVELLE SECTION - Historique académique */}
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+              <span className="text-blue-600">🎓</span>
+              Historique académique (optionnel)
+            </h3>
+            <p className="text-xs text-gray-600 mb-4">
+              Informations sur le parcours scolaire antérieur de l'élève
+            </p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  École précédente
+                </label>
+                <input
+                  type="text"
+                  value={formData.academicPreviousSchool}
+                  onChange={(e) => setFormData({ ...formData, academicPreviousSchool: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Nom de l'école précédente..."
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Dernier niveau/classe
+                </label>
+                <input
+                  type="text"
+                  value={formData.academicLastGrade}
+                  onChange={(e) => setFormData({ ...formData, academicLastGrade: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Terminale, Première, Seconde..."
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Raison du transfert
+                </label>
+                <input
+                  type="text"
+                  value={formData.academicTransferReason}
+                  onChange={(e) => setFormData({ ...formData, academicTransferReason: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Déménagement, choix de programme..."
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Besoins spéciaux
+                </label>
+                <input
+                  type="text"
+                  value={formData.academicSpecialNeeds}
+                  onChange={(e) => setFormData({ ...formData, academicSpecialNeeds: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Adaptation scolaire, dyslexie..."
+                />
+              </div>
+              
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Langues parlées
+                </label>
+                <input
+                  type="text"
+                  value={formData.academicLanguages}
+                  onChange={(e) => setFormData({ ...formData, academicLanguages: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Français, Anglais, Espagnol... (séparer par des virgules)"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Séparez les langues par des virgules (ex: Français, Anglais, Espagnol)
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* NOUVELLE SECTION - Préférences et objectifs */}
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+              <span className="text-purple-600">🎯</span>
+              Préférences et objectifs (optionnel)
+            </h3>
+            <p className="text-xs text-gray-600 mb-4">
+              Informations pour personnaliser l'expérience éducative de l'élève
+            </p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Objectifs scolaires
+                </label>
+                <input
+                  type="text"
+                  value={formData.preferencesGoals}
+                  onChange={(e) => setFormData({ ...formData, preferencesGoals: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Diplôme visé, métier souhaité..."
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Centres d'intérêt
+                </label>
+                <input
+                  type="text"
+                  value={formData.preferencesInterests}
+                  onChange={(e) => setFormData({ ...formData, preferencesInterests: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Sciences, arts, littérature..."
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Activités extrascolaires
+                </label>
+                <input
+                  type="text"
+                  value={formData.preferencesExtracurriculars}
+                  onChange={(e) => setFormData({ ...formData, preferencesExtracurriculars: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Sport, musique, théâtre..."
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Style d'apprentissage préféré
+                </label>
+                <select
+                  value={formData.preferencesLearningStyle}
+                  onChange={(e) => setFormData({ ...formData, preferencesLearningStyle: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">Sélectionner un style...</option>
+                  <option value="visuel">Visuel (apprend en voyant)</option>
+                  <option value="auditif">Auditif (apprend en écoutant)</option>
+                  <option value="kinesthésique">Kinesthésique (apprend en faisant)</option>
+                  <option value="mixte">Mixte (combinaison)</option>
+                </select>
+              </div>
+            </div>
+            
+            <div className="mt-3 p-2 bg-purple-50 rounded-lg">
+              <p className="text-xs text-purple-800">
+                <strong>💡 Astuce :</strong> Ces informations aident les enseignants à adapter leur pédagogie aux besoins spécifiques de l'élève.
+              </p>
             </div>
           </div>
 
