@@ -187,25 +187,119 @@ def get_enrollment_statistics(db: Session) -> dict:
         logger.error(f"❌ Erreur lors de la récupération des statistiques: {str(e)}")
         return {}
 
+def ensure_student_columns_exist(db: Session) -> dict:
+    """
+    S'assure que toutes les colonnes nécessaires existent dans la table students
+    
+    Returns:
+        dict: Résultat de l'opération
+    """
+    try:
+        logger.info("🔍 Vérification des colonnes de la table students...")
+        
+        columns_to_add = [
+            ("student_code", "VARCHAR", "UNIQUE"),
+            ("emergency_contact", "JSON", None),
+            ("medical_info", "JSON", None),
+            ("academic_history", "JSON", None),
+            ("preferences", "JSON", None),
+            ("profile_photo", "VARCHAR", None),
+            ("profile_completed", "BOOLEAN", "NOT NULL DEFAULT FALSE"),
+            ("profile_completion_date", "TIMESTAMP", None),
+        ]
+        
+        added_columns = []
+        
+        for column_name, column_type, constraint in columns_to_add:
+            try:
+                # Vérifier si la colonne existe
+                check_query = text(f"""
+                    SELECT EXISTS (
+                        SELECT 1 
+                        FROM information_schema.columns 
+                        WHERE table_name = 'students' 
+                        AND column_name = '{column_name}'
+                    )
+                """)
+                
+                result = db.execute(check_query)
+                exists = result.scalar()
+                
+                if not exists:
+                    # Créer la colonne
+                    constraint_str = f" {constraint}" if constraint else ""
+                    alter_query = text(f"""
+                        ALTER TABLE students 
+                        ADD COLUMN {column_name} {column_type}{constraint_str}
+                    """)
+                    
+                    db.execute(alter_query)
+                    added_columns.append(column_name)
+                    logger.info(f"✅ Colonne ajoutée: {column_name}")
+                else:
+                    logger.debug(f"ℹ️  Colonne existante: {column_name}")
+                    
+            except Exception as col_error:
+                logger.warning(f"⚠️  Erreur pour la colonne {column_name}: {col_error}")
+        
+        # Créer l'index sur student_code si la colonne a été ajoutée
+        if "student_code" in added_columns:
+            try:
+                index_query = text("""
+                    CREATE INDEX IF NOT EXISTS idx_students_student_code 
+                    ON students(student_code)
+                """)
+                db.execute(index_query)
+                logger.info("✅ Index créé sur student_code")
+            except Exception as idx_error:
+                logger.warning(f"⚠️  Erreur lors de la création de l'index: {idx_error}")
+        
+        db.commit()
+        
+        if added_columns:
+            logger.info(f"✅ {len(added_columns)} colonne(s) ajoutée(s): {', '.join(added_columns)}")
+        else:
+            logger.info("✅ Toutes les colonnes existent déjà")
+        
+        return {
+            "status": "success",
+            "columns_added": added_columns,
+            "total_added": len(added_columns)
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de la vérification des colonnes: {str(e)}")
+        db.rollback()
+        return {
+            "status": "error",
+            "error": str(e),
+            "columns_added": [],
+            "total_added": 0
+        }
+
 def run_startup_maintenance(db: Session):
     """
     Exécute les tâches de maintenance au démarrage
     """
     logger.info("🔧 Démarrage de la maintenance de la base de données...")
     
-    # 1. Nettoyer les doublons
+    # 1. S'assurer que toutes les colonnes existent
+    columns_result = ensure_student_columns_exist(db)
+    
+    # 2. Nettoyer les doublons
     cleanup_result = cleanup_duplicate_enrollments(db)
     
-    # 2. S'assurer que la contrainte existe
+    # 3. S'assurer que la contrainte existe
     ensure_unique_active_enrollment_constraint(db)
     
-    # 3. Afficher les statistiques
+    # 4. Afficher les statistiques
     stats = get_enrollment_statistics(db)
     logger.info(f"📊 Statistiques des inscriptions: {stats}")
     
     logger.info("✅ Maintenance terminée")
     
     return {
+        "columns": columns_result,
         "cleanup": cleanup_result,
         "statistics": stats
     }

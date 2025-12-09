@@ -88,11 +88,39 @@ async def create_payment_intent(
             simulated_payment_intent_id = f"pi_simulated_{uuid.uuid4().hex[:24]}"
             simulated_client_secret = f"{simulated_payment_intent_id}_secret_{uuid.uuid4().hex[:10]}"
             
+            # Créer aussi un paiement dans students-node pour la synchronisation
+            try:
+                async with httpx.AsyncClient() as client:
+                    students_payment = {
+                        "studentId": payment_data.student_id,
+                        "amount": payment_data.amount,
+                        "paymentType": "tuition",
+                        "paymentMethod": "card",
+                        "status": "pending",
+                        "transactionId": simulated_payment_intent_id,
+                        "notes": payment_data.description or f"Paiement Stripe (simulation): {simulated_payment_intent_id}"
+                    }
+                    
+                    response = await client.post(
+                        "http://localhost:4003/payments",
+                        json=students_payment,
+                        headers={"Authorization": f"Bearer {SERVICE_JWT}"},
+                        timeout=10.0
+                    )
+                    
+                    if response.status_code == 201:
+                        print(f"✅ Paiement simulé créé dans students-node: {simulated_payment_intent_id}")
+                    else:
+                        print(f"⚠️ Erreur création paiement students-node: {response.status_code}")
+            except Exception as sync_error:
+                print(f"⚠️ Erreur synchronisation students-node: {sync_error}")
+            
             return PaymentIntentResponse(
-                payment_intent_id=simulated_payment_intent_id,
+                id=simulated_payment_intent_id,
                 client_secret=simulated_client_secret,
                 amount=payment_data.amount,
-                currency=payment_data.currency
+                currency=payment_data.currency,
+                status="requires_payment_method"
             )
         
         # Mode production: vraie API Stripe
@@ -107,7 +135,7 @@ async def create_payment_intent(
             }
         )
 
-        # Enregistrer dans la base de données
+        # Enregistrer dans la base de données locale (payments-fastapi)
         payment = StripePayment(
             id=str(uuid.uuid4()),
             student_id=payment_data.student_id,
@@ -120,6 +148,48 @@ async def create_payment_intent(
         db.add(payment)
         db.commit()
         db.refresh(payment)
+
+        # Créer aussi un paiement dans students-node pour la synchronisation
+        try:
+            print(f"🔄 Tentative de synchronisation avec students-node...")
+            print(f"🔑 SERVICE_JWT disponible: {SERVICE_JWT is not None}")
+            
+            async with httpx.AsyncClient() as client:
+                students_payment = {
+                    "studentId": payment_data.student_id,
+                    "amount": payment_data.amount,
+                    "paymentType": "tuition",  # Par défaut, peut être ajusté
+                    "paymentMethod": "card",
+                    "status": "pending",
+                    "transactionId": intent.id,  # Utiliser le payment_intent_id de Stripe
+                    "notes": payment_data.description or f"Paiement Stripe: {intent.id}"
+                }
+                
+                print(f"📤 Payload envoyé: {students_payment}")
+                
+                # Appeler students-node pour créer le paiement
+                response = await client.post(
+                    "http://localhost:4003/payments",
+                    json=students_payment,
+                    headers={"Authorization": f"Bearer {SERVICE_JWT}"},
+                    timeout=10.0
+                )
+                
+                print(f"📥 Réponse students-node: {response.status_code}")
+                
+                if response.status_code == 201:
+                    response_data = response.json()
+                    print(f"✅ Paiement créé dans students-node: {intent.id}")
+                    print(f"✅ Détails: {response_data}")
+                else:
+                    error_text = response.text
+                    print(f"❌ Erreur création paiement students-node: {response.status_code}")
+                    print(f"❌ Détails: {error_text}")
+        except Exception as sync_error:
+            print(f"⚠️ Erreur synchronisation students-node: {sync_error}")
+            import traceback
+            traceback.print_exc()
+            # Ne pas bloquer si la synchro échoue
 
         return PaymentIntentResponse(
             id=payment.id,
@@ -194,6 +264,58 @@ async def create_checkout_session(
     try:
         payment_id = str(uuid.uuid4())
 
+        # Mode simulation
+        if STRIPE_SIMULATION_MODE:
+            simulated_session_id = f"cs_test_simulated_{uuid.uuid4().hex[:24]}"
+            simulated_url = f"http://localhost:4004/simulated-checkout?session_id={simulated_session_id}"
+            
+            # Enregistrer dans la base de données
+            payment = StripePayment(
+                id=payment_id,
+                student_id=session_data.student_id,
+                amount=session_data.amount,
+                currency=session_data.currency,
+                status="pending",
+                stripe_session_id=simulated_session_id,
+                description=session_data.description
+            )
+            db.add(payment)
+            db.commit()
+            db.refresh(payment)
+            
+            # Synchroniser avec students-node
+            try:
+                print(f"🔄 Synchronisation checkout session avec students-node...")
+                async with httpx.AsyncClient() as client:
+                    students_payment = {
+                        "studentId": session_data.student_id,
+                        "amount": session_data.amount,
+                        "paymentType": "tuition",
+                        "paymentMethod": "card",
+                        "status": "pending",
+                        "transactionId": simulated_session_id,
+                        "notes": session_data.description or f"Checkout Stripe (simulation): {simulated_session_id}"
+                    }
+                    
+                    response = await client.post(
+                        "http://localhost:4003/payments",
+                        json=students_payment,
+                        headers={"Authorization": f"Bearer {SERVICE_JWT}"},
+                        timeout=10.0
+                    )
+                    
+                    if response.status_code == 201:
+                        print(f"✅ Checkout session créée dans students-node: {simulated_session_id}")
+            except Exception as sync_error:
+                print(f"⚠️ Erreur synchronisation students-node: {sync_error}")
+            
+            return CheckoutSessionResponse(
+                id=payment.id,
+                url=simulated_url,
+                amount=session_data.amount,
+                currency=session_data.currency
+            )
+
         # Force session_id placeholder in success_url for frontend confirmation
         success_url_val = session_data.success_url or "http://localhost:5173/payment-success"
         if "{CHECKOUT_SESSION_ID}" not in success_url_val:
@@ -238,6 +360,34 @@ async def create_checkout_session(
         db.add(payment)
         db.commit()
         db.refresh(payment)
+        
+        # Synchroniser avec students-node
+        try:
+            print(f"🔄 Synchronisation checkout session avec students-node...")
+            async with httpx.AsyncClient() as client:
+                students_payment = {
+                    "studentId": session_data.student_id,
+                    "amount": session_data.amount,
+                    "paymentType": "tuition",
+                    "paymentMethod": "card",
+                    "status": "pending",
+                    "transactionId": session_id,
+                    "notes": session_data.description or f"Checkout Stripe: {session_id}"
+                }
+                
+                response = await client.post(
+                    "http://localhost:4003/payments",
+                    json=students_payment,
+                    headers={"Authorization": f"Bearer {SERVICE_JWT}"},
+                    timeout=10.0
+                )
+                
+                if response.status_code == 201:
+                    print(f"✅ Checkout session créée dans students-node: {session_id}")
+                else:
+                    print(f"⚠️ Erreur création checkout students-node: {response.status_code}")
+        except Exception as sync_error:
+            print(f"⚠️ Erreur synchronisation students-node: {sync_error}")
 
         return CheckoutSessionResponse(
             id=payment.id,

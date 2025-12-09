@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle, Loader, XCircle } from 'lucide-react';
-import { apiClient } from '../lib/apiClient';
+import { paymentsClient } from '../lib/apiClient';
 
 export default function PaymentSuccess() {
   const [status, setStatus] = useState<'processing' | 'success' | 'error'>('processing');
@@ -17,7 +17,7 @@ export default function PaymentSuccess() {
 
     (async () => {
       try {
-        await apiClient.get(`/stripe/checkout-session/${sessionId}/confirm`);
+        await paymentsClient.get(`/checkout-session/${sessionId}/confirm`);
         setStatus('success');
         setMessage('Paiement confirmé avec succès. Vous allez être redirigé...');
         setTimeout(() => {

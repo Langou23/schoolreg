@@ -69,32 +69,38 @@ export default function QuebecGrades({ enrollment }: QuebecGradesProps) {
   const level = enrollment.class?.level?.toLowerCase() || 'primaire';
   const courses = quebecCourses[level as keyof typeof quebecCourses] || quebecCourses.primaire;
 
-  // Générer des notes exemple si pas encore de données
+  // ✅ UTILISER UNIQUEMENT LES DONNÉES RÉELLES DE LA BD
   const courseGrades = enrollment.courseGrades || {};
   
-  // Créer des notes d'exemple si nécessaire
-  const sampleGrades = courses.map(course => {
+  console.log('📊 Notes chargées depuis la BD:', courseGrades);
+  
+  // Mapper les cours avec les notes réelles UNIQUEMENT
+  const actualGrades = courses.map(course => {
     const existing = courseGrades[course.code];
-    if (existing) return { ...course, ...existing };
-    
-    // Génération de notes d'exemple réalistes
-    const baseGrade = Math.floor(Math.random() * 25) + 70; // 70-95%
-    return {
-      ...course,
-      grade: baseGrade,
-      etape1: Math.floor(Math.random() * 10) + baseGrade - 5,
-      etape2: Math.floor(Math.random() * 10) + baseGrade - 5,
-      etape3: Math.floor(Math.random() * 10) + baseGrade - 5,
-      competencies: {
-        comprehension: Math.floor(Math.random() * 4) + 1,
-        application: Math.floor(Math.random() * 4) + 1,
-        communication: Math.floor(Math.random() * 4) + 1
-      },
-      comments: "Bon progrès démontré au cours de l'année."
-    };
-  });
+    if (existing) {
+      return { ...course, ...existing };
+    }
+    // ❌ NE PAS GÉNÉRER DE DONNÉES - Retourner null si pas de note
+    return null;
+  }).filter(Boolean); // Garder uniquement les cours avec notes
+  
+  // Si aucune note n'existe, afficher un message
+  if (actualGrades.length === 0) {
+    return (
+      <div className="bg-white rounded-lg p-8 text-center">
+        <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+        <h3 className="text-xl font-semibold text-gray-700 mb-2">Aucune note disponible</h3>
+        <p className="text-gray-500">
+          Les notes n'ont pas encore été saisies par l'enseignant.
+        </p>
+        <p className="text-sm text-gray-400 mt-2">
+          Classe: {enrollment.class?.name} • Année {enrollment.academicYear || '2024-2025'}
+        </p>
+      </div>
+    );
+  }
 
-  const averageGrade = sampleGrades.reduce((sum, course) => sum + (course.grade || 0), 0) / sampleGrades.length;
+  const averageGrade = actualGrades.reduce((sum, course) => sum + (course.grade || 0), 0) / actualGrades.length;
   const gradeInfo = getQuebecGrade(averageGrade);
 
   return (
@@ -130,7 +136,7 @@ export default function QuebecGrades({ enrollment }: QuebecGradesProps) {
 
       {/* Résultats par matière */}
       <div className="grid gap-4">
-        {sampleGrades.map((course) => {
+        {actualGrades.map((course: any) => {
           const courseGradeInfo = getQuebecGrade(course.grade || 0);
           
           return (
@@ -231,11 +237,11 @@ export default function QuebecGrades({ enrollment }: QuebecGradesProps) {
             <div className="text-sm text-gray-600">Cote</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-green-600">{sampleGrades.filter(c => (c.grade || 0) >= 60).length}</div>
+            <div className="text-2xl font-bold text-green-600">{actualGrades.filter((c: any) => (c.grade || 0) >= 60).length}</div>
             <div className="text-sm text-gray-600">Matières réussies</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-blue-600">{enrollment.attendance?.toFixed(0) || '95'}%</div>
+            <div className="text-2xl font-bold text-blue-600">{enrollment.attendance?.toFixed(0) || 'N/A'}</div>
             <div className="text-sm text-gray-600">Assiduité</div>
           </div>
         </div>

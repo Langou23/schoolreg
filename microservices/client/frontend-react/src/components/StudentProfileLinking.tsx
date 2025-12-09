@@ -1,13 +1,7 @@
 import { useState } from 'react';
 import { Link as LinkIcon, CheckCircle, AlertCircle } from 'lucide-react';
-import { UserProfile } from '../types';
 
-interface StudentProfileLinkingProps {
-  user: UserProfile;
-  onLinkSuccess?: () => void;
-}
-
-export default function StudentProfileLinking({ user, onLinkSuccess }: StudentProfileLinkingProps) {
+export default function StudentProfileLinking() {
   const [studentCode, setStudentCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -15,8 +9,15 @@ export default function StudentProfileLinking({ user, onLinkSuccess }: StudentPr
   const handleLinkByCode = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!studentCode.trim()) {
+    const cleanCode = studentCode.trim().toLowerCase().replace('#', '');
+    
+    if (!cleanCode) {
       setMessage({ type: 'error', text: 'Veuillez entrer votre code d\'inscription' });
+      return;
+    }
+
+    if (cleanCode.length !== 8) {
+      setMessage({ type: 'error', text: 'Le code doit contenir exactement 8 caractères' });
       return;
     }
 
@@ -24,34 +25,39 @@ export default function StudentProfileLinking({ user, onLinkSuccess }: StudentPr
     setMessage(null);
     
     try {
-      const token = localStorage.getItem('auth_token');
-      const response = await fetch('http://localhost:4003/students/link-by-code', {
+      // Utiliser l'endpoint d'accès par code d'application
+      const response = await fetch('http://localhost:4002/applications/access-by-code', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ studentCode: studentCode.trim() })
+        body: JSON.stringify({ code: cleanCode })
       });
       
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || 'Erreur lors de la liaison');
+        throw new Error(errorData.error || 'Code invalide ou demande non approuvée');
       }
       
       const data = await response.json();
       
-      setMessage({ 
-        type: 'success', 
-        text: `✅ Profil lié avec succès ! Redirection en cours...` 
-      });
-      
-      // Attendre un peu avant de déclencher le callback
-      setTimeout(() => {
-        if (onLinkSuccess) {
-          onLinkSuccess();
-        }
-      }, 2000);
+      if (data.success && data.token && data.student) {
+        // Mettre à jour le localStorage avec le nouveau token
+        localStorage.setItem('auth_token', data.token);
+        localStorage.setItem('current_user', JSON.stringify(data.user));
+        
+        setMessage({ 
+          type: 'success', 
+          text: `✅ Profil trouvé et lié avec succès ! Redirection en cours...` 
+        });
+        
+        // Redirection immédiate vers la page d'accueil pour afficher le profil
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 1000);
+      } else {
+        throw new Error('Réponse invalide du serveur');
+      }
       
     } catch (error) {
       setMessage({ 
@@ -97,8 +103,8 @@ export default function StudentProfileLinking({ user, onLinkSuccess }: StudentPr
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
           <p className="text-sm text-blue-800">
             <strong>🔑 Code d'inscription requis</strong><br />
-            Vous avez reçu un code unique lors de votre inscription (ex: <code className="bg-white px-1 rounded">SR2024-ABC123</code>).<br />
-            Ce code se trouve sur votre email de confirmation ou auprès de l'administration.
+            Vous avez reçu un code unique lors de votre inscription (ex: <code className="bg-white px-2 py-1 rounded font-mono">#6485edfd</code>).<br />
+            Ce code se trouve dans l'email de confirmation ou sur votre reçu d'inscription.
           </p>
         </div>
 
@@ -107,16 +113,21 @@ export default function StudentProfileLinking({ user, onLinkSuccess }: StudentPr
             <LinkIcon className="w-4 h-4 inline mr-1" />
             Code d'inscription *
           </label>
-          <input
-            type="text"
-            value={studentCode}
-            onChange={(e) => setStudentCode(e.target.value.toUpperCase())}
-            className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg font-mono"
-            placeholder="SR2024-ABC123"
-            maxLength={15}
-          />
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <span className="text-gray-400 font-mono text-xl">#</span>
+            </div>
+            <input
+              type="text"
+              value={studentCode}
+              onChange={(e) => setStudentCode(e.target.value.toLowerCase())}
+              className="w-full pl-10 pr-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-mono tracking-wide"
+              placeholder="6485edfd"
+              maxLength={8}
+            />
+          </div>
           <p className="text-xs text-gray-500 mt-1">
-            Format: SR + année + tiret + 6 caractères (ex: SR2024-ABC123)
+            {studentCode.length}/8 caractères • Ne pas inclure le # au début
           </p>
         </div>
 

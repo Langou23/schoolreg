@@ -129,22 +129,45 @@ function CheckoutForm({ amount, studentId, studentName, paymentType, paymentId, 
         
         // 3. Confirmer le paiement côté serveur (mise à jour DB + notification)
         console.log('📡 Étape 3: Confirmation côté serveur...');
+        console.log('🔍 Payment Intent ID:', paymentIntent.id);
+        console.log('🔍 Student ID:', studentId);
+        
+        // Attendre 2 secondes pour que la synchronisation se fasse
+        console.log('⏱️ Attente de 2s pour synchronisation...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
         try {
-          const confirmResponse = await fetch('http://localhost:4003/students/payments/confirm-stripe', {
+          const confirmPayload = {
+            paymentIntentId: paymentIntent.id,
+            studentId,
+          };
+          
+          console.log('📤 Payload de confirmation:', confirmPayload);
+          
+          const confirmResponse = await fetch('http://localhost:4003/payments/confirm-stripe', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
             },
-            body: JSON.stringify({
-              paymentIntentId: paymentIntent.id,
-              studentId,
-            }),
+            body: JSON.stringify(confirmPayload),
           });
           
-          console.log('✅ Confirmation serveur:', confirmResponse.status);
+          console.log('📥 Réponse confirmation:', confirmResponse.status, confirmResponse.statusText);
+          
+          if (!confirmResponse.ok) {
+            const errorData = await confirmResponse.json();
+            console.error('❌ Erreur serveur:', errorData);
+            console.error('❌ Le paiement n\'a pas été trouvé dans students-node');
+            console.error('❌ Vérifiez que payments-fastapi a bien créé le paiement');
+            throw new Error(errorData.detail || 'Erreur de confirmation');
+          }
+          
+          const confirmData = await confirmResponse.json();
+          console.log('✅ Confirmation serveur réussie:', confirmData);
         } catch (confirmError) {
           console.error('⚠️ Erreur confirmation serveur (non bloquant):', confirmError);
+          console.error('⚠️ Le statut pourrait rester "pending" dans l\'interface');
           // Continue quand même, le webhook s'en chargera
         }
 

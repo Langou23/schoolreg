@@ -103,8 +103,19 @@ function Start-Servers {
         Write-Host "   [WARN] resources-fastapi non trouve" -ForegroundColor Yellow
     }
     
-    # 7. Demarrer frontend React (port 5173)
-    Write-Host "   [7] Demarrage du frontend React (port 5173)..." -ForegroundColor Cyan
+    # 7. Demarrer RAG (port 5003) - Chatbot AI
+    Write-Host "   [7] Demarrage de RAG-fastapi (port 5003) - Chatbot AI..." -ForegroundColor Cyan
+    $ragPath = Join-Path $projectRoot "services\RAG"
+    if (Test-Path $ragPath) {
+        Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$ragPath'; python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 5003" -WindowStyle Normal
+        Write-Host "   [OK] RAG-fastapi demarre" -ForegroundColor Green
+        Start-Sleep -Seconds 2
+    } else {
+        Write-Host "   [WARN] RAG-fastapi non trouve" -ForegroundColor Yellow
+    }
+    
+    # 8. Demarrer frontend React (port 5173)
+    Write-Host "   [8] Demarrage du frontend React (port 5173)..." -ForegroundColor Cyan
     $frontendPath = Join-Path $projectRoot "client\frontend-react"
     Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$frontendPath'; npm run dev" -WindowStyle Normal
     Write-Host "   [OK] Frontend React demarre" -ForegroundColor Green
@@ -127,6 +138,7 @@ function Test-Servers {
         @{ Name = "payments-fastapi"; Url = "http://localhost:4004/health" },
         @{ Name = "notifications-node"; Url = "http://localhost:4005/health" },
         @{ Name = "resources-fastapi"; Url = "http://localhost:5001/health" },
+        @{ Name = "RAG-fastapi"; Url = "http://localhost:5003" },
         @{ Name = "frontend-react"; Url = "http://localhost:5173" }
     )
     
@@ -157,6 +169,7 @@ Write-Host "   - students-node:      http://localhost:4003" -ForegroundColor Cya
 Write-Host "   - payments-fastapi:   http://localhost:4004" -ForegroundColor Cyan
 Write-Host "   - notifications-node: http://localhost:4005" -ForegroundColor Cyan
 Write-Host "   - resources-fastapi:  http://localhost:5001" -ForegroundColor Cyan
+Write-Host "   - RAG-fastapi:        http://localhost:5003" -ForegroundColor Cyan
 Write-Host "   - frontend-react:     http://localhost:5173" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "[INFO] Les serveurs sont lances dans des fenetres separees" -ForegroundColor Gray

@@ -93,17 +93,21 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 # Create tables (with new JSON columns)
 Base.metadata.create_all(bind=engine)
 
-# Maintenance automatique désactivée pour éviter le blocage au démarrage
-# Utilisez l'endpoint POST /admin/maintenance/cleanup-enrollments pour nettoyer manuellement
-# print("🔧 Exécution de la maintenance de la base de données...")
-# try:
-#     db = SessionLocal()
-#     maintenance_result = run_startup_maintenance(db)
-#     print(f"✅ Maintenance terminée: {maintenance_result}")
-#     db.close()
-# except Exception as e:
-#     print(f"⚠️  Erreur lors de la maintenance: {e}")
-#     print("   L'application continuera de fonctionner")
+# Event de démarrage pour la maintenance
+@app.on_event("startup")
+async def startup_event():
+    """Exécute la maintenance de la base de données au démarrage"""
+    print("🔧 Exécution de la maintenance de la base de données...")
+    try:
+        db = SessionLocal()
+        maintenance_result = run_startup_maintenance(db)
+        print(f"✅ Maintenance terminée: {maintenance_result}")
+        db.close()
+    except Exception as e:
+        print(f"⚠️  Erreur lors de la maintenance: {e}")
+        print("   L'application continuera de fonctionner")
+        import traceback
+        traceback.print_exc()
 
 PORT = int(os.getenv("STUDENTS_PORT", "4003"))
 
@@ -562,6 +566,7 @@ async def update_student(student_id: str, payload: dict = Body(...), db: Session
         student.tuition_paid = original_paid
         
         # Si tuitionAmount a augmenté, créer un paiement pending pour le solde
+        tuition_changed = False
         if 'tuitionAmount' in payload:
             new_tuition = float(payload['tuitionAmount'])
             old_tuition = old_values.get('tuitionAmount', 0) or 0
@@ -569,6 +574,7 @@ async def update_student(student_id: str, payload: dict = Body(...), db: Session
             
             # Si le nouveau montant est supérieur à l'ancien ET qu'il reste un solde
             if new_tuition > old_tuition:
+                tuition_changed = True
                 new_balance = new_tuition - current_paid
                 if new_balance > 0:
                     # Créer un paiement pending pour le solde
@@ -589,6 +595,35 @@ async def update_student(student_id: str, payload: dict = Body(...), db: Session
                     )
                     db.add(pending_payment)
                     changes.append(f"Paiement pending créé: {new_balance} $ CAD pour session {student.session}")
+                    
+                    # Créer une notification pour le parent
+                    try:
+                        import httpx
+                        notification_payload = {
+                            "userId": student.user_id if student.user_id else None,
+                            "type": "payment_reminder",
+                            "title": "💰 Nouveau frais de scolarité",
+                            "message": f"Les frais de scolarité pour {student.first_name} {student.last_name} ont été mis à jour. Nouveau montant: {new_tuition} $ CAD. Solde à payer: {new_balance} $ CAD.",
+                            "relatedId": student.id,
+                            "metadata": {
+                                "studentId": student.id,
+                                "studentName": f"{student.first_name} {student.last_name}",
+                                "oldAmount": old_tuition,
+                                "newAmount": new_tuition,
+                                "balance": new_balance,
+                                "type": "tuition_update"
+                            }
+                        }
+                        
+                        async with httpx.AsyncClient() as client:
+                            await client.post(
+                                "http://localhost:4006/api/notifications",
+                                json=notification_payload,
+                                timeout=5.0
+                            )
+                            print(f"✅ Notification envoyée au parent pour mise à jour frais: {new_balance} $ CAD")
+                    except Exception as notif_error:
+                        print(f"⚠️ Erreur envoi notification parent: {notif_error}")
         
         db.commit()
         db.refresh(student)
@@ -899,6 +934,38 @@ async def update_payment(payment_id: str, payload: dict = Body(...), db: Session
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to update payment: {str(e)}")
+
+
+@app.delete("/payments/{payment_id}")
+async def delete_payment(payment_id: str, db: Session = Depends(get_db), user: dict = Depends(require_role("admin","direction"))):
+    """
+    Supprimer un paiement existant et ajuster le tuition_paid si nécessaire
+    """
+    try:
+        # Récupérer le paiement
+        payment = db.query(Payment).filter(Payment.id == payment_id).first()
+        if not payment:
+            raise HTTPException(status_code=404, detail="Payment not found")
+        
+        # Si c'est un paiement de scolarité qui était payé, ajuster tuition_paid
+        if payment.payment_type == 'tuition' and payment.status == PaymentStatus.paid:
+            student = db.query(Student).filter(Student.id == payment.student_id).first()
+            if student:
+                # Soustraire le montant du paiement du total payé
+                student.tuition_paid = max(0, (student.tuition_paid or 0) - payment.amount)
+                student.updated_at = datetime.utcnow()
+                print(f"✅ Ajustement tuition_paid pour élève {student.id}: -{payment.amount} $ CAD")
+        
+        # Supprimer le paiement
+        db.delete(payment)
+        db.commit()
+        
+        return {"message": "Payment deleted successfully", "id": payment_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete payment: {str(e)}")
 
 
 @app.post("/payments/create-payment-intent")
@@ -1627,10 +1694,17 @@ async def get_admin_dashboard_stats(
     """
     try:
         import httpx
+        print(f"🔐 User authentifié: {user}")
         
         # Compter les étudiants (simple COUNT)
-        total_students = db.query(Student).count()
-        print(f"📊 Total étudiants: {total_students}")
+        try:
+            total_students = db.query(Student).count()
+            print(f"📊 Total étudiants: {total_students}")
+        except Exception as e:
+            print(f"❌ Erreur comptage étudiants: {e}")
+            import traceback
+            traceback.print_exc()
+            total_students = 0
         
         # Compter les classes (utilise le modèle Class existant)
         try:
@@ -1638,15 +1712,22 @@ async def get_admin_dashboard_stats(
             print(f"📊 Total classes: {total_classes}")
         except Exception as class_error:
             print(f"⚠️ Erreur lors du comptage des classes: {class_error}")
+            import traceback
+            traceback.print_exc()
             total_classes = 0
         
         # Compter les paiements en attente (optimisé)
-        # Note: PaymentStatus n'a que: pending, paid, cancelled, refunded
-        pending_payments_result = db.query(func.sum(Payment.amount)).filter(
-            Payment.status == PaymentStatus.pending
-        ).scalar()
-        pending_payments_amount = float(pending_payments_result or 0)
-        print(f"📊 Paiements en attente: {pending_payments_amount}")
+        try:
+            pending_payments_result = db.query(func.sum(Payment.amount)).filter(
+                Payment.status == PaymentStatus.pending
+            ).scalar()
+            pending_payments_amount = float(pending_payments_result or 0)
+            print(f"📊 Paiements en attente: {pending_payments_amount}")
+        except Exception as payment_error:
+            print(f"⚠️ Erreur lors du comptage des paiements: {payment_error}")
+            import traceback
+            traceback.print_exc()
+            pending_payments_amount = 0
         
         # Récupérer les applications depuis le service Applications
         recent_applications = []
@@ -1668,7 +1749,7 @@ async def get_admin_dashboard_stats(
             print(f"⚠️ Erreur lors de la récupération des applications: {e}")
             # Continuer même si le service applications n'est pas disponible
         
-        return {
+        result = {
             "success": True,
             "stats": {
                 "totalStudents": total_students,
@@ -1678,7 +1759,12 @@ async def get_admin_dashboard_stats(
                 "recentApplications": recent_applications
             }
         }
+        print(f"✅ Résultat final: {result}")
+        return result
     except Exception as e:
+        print(f"❌ ERREUR CRITIQUE dans get_admin_dashboard_stats: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to fetch dashboard stats: {str(e)}")
 
 

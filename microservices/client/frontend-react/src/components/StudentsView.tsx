@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Student } from '../types';
 import { StudentsApi } from '../lib/api';
-import { Search, Plus, Edit2, Trash2, Receipt } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, Receipt, Key, Copy, DollarSign } from 'lucide-react';
 import StudentForm from './StudentForm';
 import PaymentHistory from './PaymentHistory';
+import TuitionManagement from './TuitionManagement';
 
 export default function StudentsView() {
   const [students, setStudents] = useState<Student[]>([]);
@@ -13,6 +14,8 @@ export default function StudentsView() {
   const [editingStudent, setEditingStudent] = useState<Student | undefined>();
   const [showPaymentHistory, setShowPaymentHistory] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [showTuitionManagement, setShowTuitionManagement] = useState(false);
+  const [tuitionStudent, setTuitionStudent] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -148,6 +151,9 @@ export default function StudentsView() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Statut
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Code d'accès
+                  </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
                   </th>
@@ -191,7 +197,39 @@ export default function StudentsView() {
                         {getStatusLabel((student as any).status)}
                       </span>
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {(student as any).applicationId ? (
+                        <div className="flex items-center gap-2">
+                          <Key className="w-4 h-4 text-blue-600" />
+                          <code className="text-sm font-mono font-semibold text-blue-600">
+                            {(student as any).applicationId.substring(0, 8).toUpperCase()}
+                          </code>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText((student as any).applicationId.substring(0, 8));
+                              alert('Code copié !');
+                            }}
+                            className="p-1 hover:bg-gray-100 rounded transition-colors"
+                            title="Copier le code"
+                          >
+                            <Copy className="w-3 h-3 text-gray-600" />
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-sm text-gray-400 italic">Aucun code</span>
+                      )}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <button
+                        onClick={() => {
+                          setTuitionStudent(student);
+                          setShowTuitionManagement(true);
+                        }}
+                        className="text-amber-600 hover:text-amber-900 mr-3"
+                        title="Gérer les frais"
+                      >
+                        <DollarSign className="w-4 h-4" />
+                      </button>
                       <button
                         onClick={() => {
                           setSelectedStudent(student);
@@ -239,11 +277,28 @@ export default function StudentsView() {
       {showPaymentHistory && selectedStudent && (
         <PaymentHistory
           studentId={selectedStudent.id}
-          studentName={`${selectedStudent.last_name} ${selectedStudent.first_name}`}
+          studentName={`${(selectedStudent as any).lastName} ${(selectedStudent as any).firstName}`}
           onClose={() => {
             setShowPaymentHistory(false);
             setSelectedStudent(null);
           }}
+        />
+      )}
+
+      {showTuitionManagement && tuitionStudent && (
+        <TuitionManagement
+          student={{
+            id: tuitionStudent.id,
+            firstName: tuitionStudent.firstName,
+            lastName: tuitionStudent.lastName,
+            tuitionAmount: tuitionStudent.tuitionAmount,
+            tuitionPaid: tuitionStudent.tuitionPaid
+          }}
+          onClose={() => {
+            setShowTuitionManagement(false);
+            setTuitionStudent(null);
+          }}
+          onSuccess={fetchStudents}
         />
       )}
     </div>

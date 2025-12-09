@@ -11,6 +11,20 @@ function RootRouter() {
 
   // Espace admin/enseignant
   if (path.startsWith('/admin')) {
+    // Vérifier si l'utilisateur connecté est un étudiant ou parent
+    const userStr = localStorage.getItem('current_user');
+    if (userStr) {
+      try {
+        const user = JSON.parse(userStr);
+        // Rediriger les étudiants et parents vers l'espace utilisateur
+        if (user.role === 'student' || user.role === 'parent') {
+          window.location.href = '/';
+          return null;
+        }
+      } catch (e) {
+        console.error('Erreur parsing user:', e);
+      }
+    }
     return <App />;
   }
 

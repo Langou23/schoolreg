@@ -5,7 +5,7 @@ const AUTH_URL = 'http://localhost:4001';
 const STUDENTS_URL = 'http://localhost:4003';
 const APPLICATIONS_URL = 'http://localhost:4002';
 const CLASSES_URL = 'http://localhost:4005';
-const PAYMENTS_URL = 'http://localhost:4004';
+const PAYMENTS_URL = 'http://localhost:4008'; // Payments sur 4008 (4004 bloqué par processus zombie)
 const NOTIFICATIONS_URL = 'http://localhost:4006';
 
 // Client pour le service Auth
@@ -248,6 +248,11 @@ export const ApplicationsApi = {
 
   delete: async (id: string) => {
     const { data } = await applicationsClient.delete(`/applications/${id}`);
+    return data;
+  },
+
+  accessByCode: async (code: string) => {
+    const { data } = await applicationsClient.post('/applications/access-by-code', { code });
     return data;
   },
 };
@@ -504,7 +509,7 @@ export const StripePaymentsApi = {
     currency?: string;
     description?: string;
   }) => {
-    const { data } = await apiClient.post('/stripe/payment-intent', paymentData);
+    const { data } = await paymentsClient.post('/payment-intent', paymentData);
     return data;
   },
 
@@ -517,7 +522,7 @@ export const StripePaymentsApi = {
     success_url: string;
     cancel_url: string;
   }) => {
-    const { data } = await apiClient.post('/stripe/checkout-session', sessionData);
+    const { data } = await paymentsClient.post('/checkout-session', sessionData);
     return data;
   },
 
@@ -526,13 +531,13 @@ export const StripePaymentsApi = {
     const params = new URLSearchParams();
     if (filters?.student_id) params.append('student_id', filters.student_id);
     if (filters?.status) params.append('status', filters.status);
-    const { data } = await apiClient.get(`/payments?${params.toString()}`);
+    const { data } = await paymentsClient.get(`/payments?${params.toString()}`);
     return data;
   },
 
   // Récupérer un paiement
   getPayment: async (paymentId: string) => {
-    const { data } = await apiClient.get(`/payments/${paymentId}`);
+    const { data } = await paymentsClient.get(`/payments/${paymentId}`);
     return data;
   },
 };

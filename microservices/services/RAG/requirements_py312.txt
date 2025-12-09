@@ -1,0 +1,21 @@
+# Core FastAPI
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+python-dotenv>=1.0.0
+python-multipart>=0.0.6
+pydantic>=2.0.0
+
+# JWT Authentication
+PyJWT>=2.8.0
+
+# RAG & AI (versions compatibles Python 3.12+)
+llama-index>=0.10.0
+openai>=1.0.0
+
+# Document Processing
+pypdf2>=3.0.0
+python-docx>=1.0.0
+
+# HTTP Client
+httpx>=0.25.0
+requests>=2.31.0

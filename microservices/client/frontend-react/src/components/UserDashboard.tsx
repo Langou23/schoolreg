@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { UserProfile, Student, Payment, Enrollment, Class, Application } from '../types';
 import { StudentsApi, PaymentsApi, EnrollmentsApi, ClassesApi, ApplicationsApi } from '../lib/api';
-import { User, GraduationCap, CreditCard, BookOpen, Calendar, Mail, Phone, MapPin, ArrowLeft, Plus, AlertCircle, CheckCircle, Clock, Bell, FileText, RefreshCw } from 'lucide-react';
+import { User, GraduationCap, CreditCard, BookOpen, Calendar, Mail, Phone, MapPin, ArrowLeft, Plus, AlertCircle, CheckCircle, Clock, Bell, FileText, RefreshCw, Key, Copy } from 'lucide-react';
 import DocumentUpload from './DocumentUpload';
 import PaymentModal from './PaymentModal';
 import StudentProfileLinking from './StudentProfileLinking';
@@ -703,7 +703,7 @@ export default function UserDashboard({ user, onBack }: UserDashboardProps) {
 
             {/* Statut de l'inscription et informations importantes */}
             <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
                 {/* Statut */}
                 <div>
                   <p className="text-sm text-gray-600 mb-2">Statut de l'inscription</p>
@@ -765,6 +765,38 @@ export default function UserDashboard({ user, onBack }: UserDashboardProps) {
                     <p className="text-xs text-green-600 mt-1">
                       ✓ Dans les délais
                     </p>
+                  )}
+                </div>
+
+                {/* Code d'accès pour l'élève */}
+                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-lg p-4">
+                  <p className="text-sm text-blue-900 font-medium mb-2 flex items-center gap-2">
+                    <Key className="w-4 h-4" />
+                    Code d'accès élève
+                  </p>
+                  {(selectedStudent as any).applicationId ? (
+                    <>
+                      <div className="flex items-center gap-2 mb-2">
+                        <code className="text-lg font-mono font-bold text-blue-600 tracking-wider">
+                          {(selectedStudent as any).applicationId.substring(0, 8).toUpperCase()}
+                        </code>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText((selectedStudent as any).applicationId.substring(0, 8));
+                            alert('Code copié ! Donnez ce code à votre enfant.');
+                          }}
+                          className="p-1.5 hover:bg-white rounded transition-colors"
+                          title="Copier le code"
+                        >
+                          <Copy className="w-4 h-4 text-blue-600" />
+                        </button>
+                      </div>
+                      <p className="text-xs text-blue-700">
+                        Donnez ce code à votre enfant pour qu'il puisse se connecter à son profil
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-500 italic">Aucun code disponible</p>
                   )}
                 </div>
               </div>
@@ -1167,12 +1199,6 @@ export default function UserDashboard({ user, onBack }: UserDashboardProps) {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <StudentProfileLinking
-              user={user}
-              onLinkSuccess={() => {
-                setShowLinkingInterface(false);
-                // Recharger les données pour récupérer le profil lié
-                loadData();
-              }}
             />
           </div>
         </div>

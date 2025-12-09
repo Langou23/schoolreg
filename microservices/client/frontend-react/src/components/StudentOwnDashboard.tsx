@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { UserProfile, Student, Payment, Enrollment, Class } from '../types';
 import { StudentsApi, PaymentsApi, EnrollmentsApi, ClassesApi } from '../lib/api';
-import { User, CreditCard, BookOpen, Calendar, Mail, Phone, MapPin, ArrowLeft, AlertCircle, CheckCircle, Clock, RefreshCw, Award } from 'lucide-react';
+import { User, CreditCard, BookOpen, Calendar, Mail, Phone, MapPin, ArrowLeft, AlertCircle, CheckCircle, Clock, RefreshCw, Award, Key, Copy } from 'lucide-react';
 import PaymentModal from './PaymentModal';
 import StudentProfileLinking from './StudentProfileLinking';
 import PhotoUpload from './PhotoUpload';
@@ -24,8 +24,17 @@ export default function StudentOwnDashboard({ user, onBack }: StudentOwnDashboar
   const [showLinkingInterface, setShowLinkingInterface] = useState(false);
 
   useEffect(() => {
+    // Charger les données à chaque connexion ou changement d'utilisateur
     loadData();
-  }, []);
+    
+    // Auto-refresh toutes les 30 secondes pour avoir les données à jour
+    const refreshInterval = setInterval(() => {
+      loadData(true); // Rafraîchissement silencieux
+    }, 30000); // 30 secondes
+    
+    // Nettoyage de l'intervalle quand le composant est démonté
+    return () => clearInterval(refreshInterval);
+  }, [user.id, user.studentId]); // Recharger quand l'utilisateur change
 
   const loadData = async (isManualRefresh = false) => {
     if (isManualRefresh) {
@@ -68,6 +77,15 @@ export default function StudentOwnDashboard({ user, onBack }: StudentOwnDashboar
       }
 
       if (studentProfile) {
+        console.log('📊 DONNÉES CHARGÉES DEPUIS LA BASE DE DONNÉES:', {
+          studentId: studentProfile.id,
+          nom: `${studentProfile.firstName} ${studentProfile.lastName}`,
+          dateNaissance: studentProfile.dateOfBirth,
+          programme: studentProfile.program,
+          session: studentProfile.session,
+          timestamp: new Date().toISOString()
+        });
+        
         setStudent(studentProfile);
         
         // Charger les données liées à cet élève uniquement
@@ -81,6 +99,10 @@ export default function StudentOwnDashboard({ user, onBack }: StudentOwnDashboar
         const enrolledClasses = allClasses.filter((c: Class) => 
           studentEnrollments.some((e: Enrollment) => e.classId === c.id)
         );
+
+        console.log('💰 Paiements chargés:', studentPayments.length);
+        console.log('📚 Inscriptions chargées:', studentEnrollments.length);
+        console.log('🏫 Classes chargées:', enrolledClasses.length);
 
         setPayments(studentPayments);
         setStudentEnrollments(studentEnrollments);
@@ -129,13 +151,7 @@ export default function StudentOwnDashboard({ user, onBack }: StudentOwnDashboar
             Retour
           </button>
           
-          <StudentProfileLinking
-            user={user}
-            onLinkSuccess={() => {
-              setShowLinkingInterface(false);
-              loadData();
-            }}
-          />
+          <StudentProfileLinking />
         </div>
       </div>
     );
@@ -425,6 +441,45 @@ export default function StudentOwnDashboard({ user, onBack }: StudentOwnDashboar
               </div>
             </div>
           </div>
+
+          {/* Code d'accès - Affiché seulement si applicationId existe */}
+          {student.applicationId && (
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl shadow-lg p-6">
+              <h3 className="text-xl font-bold text-blue-900 mb-4 flex items-center gap-2">
+                <Key className="w-5 h-5 text-blue-600" />
+                Code d'accès personnel
+              </h3>
+              
+              <div className="bg-white rounded-lg p-4 mb-3">
+                <p className="text-xs text-gray-600 mb-2">Votre code d'accès unique</p>
+                <div className="flex items-center gap-3">
+                  <code className="text-2xl font-mono font-bold text-blue-600 tracking-wider">
+                    #{student.applicationId.substring(0, 8).toUpperCase()}
+                  </code>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(student.applicationId!.substring(0, 8));
+                      alert('Code copié !');
+                    }}
+                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                    title="Copier le code"
+                  >
+                    <Copy className="w-5 h-5 text-gray-600" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-blue-100 border border-blue-300 rounded-lg p-3">
+                <p className="text-sm text-blue-800">
+                  <strong>💡 À quoi sert ce code ?</strong>
+                </p>
+                <p className="text-xs text-blue-700 mt-1">
+                  Ce code vous permet d'accéder rapidement à votre profil sans avoir besoin de votre email et mot de passe. 
+                  Conservez-le précieusement et ne le partagez pas.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Contact parent */}
           <div className="bg-white rounded-xl shadow-lg p-6">

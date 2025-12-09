@@ -48,11 +48,18 @@ SchoolReg est une application web moderne de gestion scolaire complète, conçue
 - Compteurs en temps réel
 
 ### 💰 Gestion des Paiements
-- Enregistrement de tous types de paiements
-- Paiement en ligne via Stripe (Payment Intent & Checkout)
-- Mode simulation pour tests
-- Historique détaillé par élève
-- Statistiques et KPI
+- **Vue groupée par élève**: Affichage des paiements groupés avec expand/collapse
+- **Enregistrement de tous types de paiements**: Scolarité, inscription, matériel, etc.
+- **Paiement en ligne via Stripe**: Payment Intent & Checkout Session
+- **Mode simulation pour tests**: Pas besoin de vraie carte Stripe
+- **Historique détaillé par élève**: Tous les paiements d'un élève dans une interface
+- **Gestion des frais de scolarité**: Admin peut modifier le montant des frais
+- **Ajustement automatique**: Création automatique de paiements en attente si augmentation
+- **Notification automatique aux parents**: Via service de notifications
+- **Interface parent**: Carte affichant solde et bouton de paiement
+- **Suppression de paiements**: Ajustement automatique du `tuition_paid`
+- **Sessions académiques**: Attribution automatique (Automne, Hiver, Été)
+- **Statistiques et KPI**: Dashboard avec métriques en temps réel
 
 ### 📋 Inscriptions et Liaison de Profil
 - **Formulaire public** accessible sans authentification
@@ -62,10 +69,25 @@ SchoolReg est une application web moderne de gestion scolaire complète, conçue
 - **Téléversement de documents**: Acte de naissance, photo, etc.
 - **Interface de modération**: Visible uniquement pour admin/direction
 
+### 🔑 Système de Code d'Accès Élève
+- **Code unique par élève**: Format SR2024-XXXXXX
+- **Génération automatique**: À la création ou approbation de l'élève
+- **Accès sécurisé**: Les élèves utilisent leur code au lieu d'un mot de passe
+- **Profil personnalisé**: Dashboard élève avec informations et paiements
+- **Pas de compte requis**: Simple code d'accès suffit
+
 ### 📊 Tableau de Bord
 - KPI en temps réel
 - Statistiques sur les élèves, classes et revenus
 - Suivi des paiements en attente
+
+### 🤖 Assistant Virtuel (RAG Chatbot)
+- **Chatbot intelligent** basé sur l'IA (GPT-4o-mini)
+- **Réponses instantanées** aux questions fréquentes
+- **Sources citées** pour chaque réponse
+- **Accessible à tous** : admin, direction, parents, élèves
+- **Documentation indexée** : FAQ, guides, règlements
+- **Disponible 24/7** via bouton flottant
 
 ## 🚀 Technologies Utilisées
 
@@ -79,8 +101,11 @@ SchoolReg est une application web moderne de gestion scolaire complète, conçue
 - **Auth Service** (Port 4001): Node.js + Express + Prisma (PostgreSQL)
 - **Applications Service** (Port 4002): Node.js + Express + Prisma (PostgreSQL)
 - **Students Service** (Port 4003): Python + FastAPI + SQLAlchemy (PostgreSQL)
-- **Payments Service** (Port 4004): Python + FastAPI + Stripe SDK (PostgreSQL)
+- **Classes Service** (Port 4005): Node.js + Express + Prisma (PostgreSQL)
+- **Notifications Service** (Port 4006): Node.js + Express
+- **Payments Service** (Port 4008): Python + FastAPI + Stripe SDK (PostgreSQL) ⚠️ Port 4008 (4004 non disponible)
 - **Resources Service** (Port 5001): Python + FastAPI + Motor (MongoDB)
+- **RAG Service** (Port 5003): Python + FastAPI + Llama-Index + OpenAI + HuggingFace (Chatbot IA conversationnel)
 
 ### Bases de données
 - **PostgreSQL**: Données relationnelles (étudiants, applications, paiements)
@@ -126,6 +151,9 @@ cd microservices/services/resources-fastapi && pip install -r requirements.txt &
 # Students service
 cd microservices/services/students-node && pip install -r requirements.txt && cd ../../..
 
+# RAG service (Chatbot IA)
+cd microservices/services/RAG && pip install -r requirements.txt && cd ../../..
+
 # Monolithe (temporaire pour auth/classes/notifications)
 cd server && npm install && cd ..
 ```
@@ -150,16 +178,33 @@ GATEWAY_PORT=3001
 AUTH_PORT=4001
 APPLICATIONS_PORT=4002
 STUDENTS_PORT=4003
-PAYMENTS_PORT=4004
+CLASSES_PORT=4005
+NOTIFICATIONS_PORT=4006
+PAYMENTS_PORT=4008
 RESOURCES_PORT=5001
-FRONTEND_PORT=5173
+RAG_PORT=5003
+FRONTEND_PORT=5174
 
 # Service URLs
 AUTH_SERVICE_URL=http://localhost:4001
 APPLICATIONS_SERVICE_URL=http://localhost:4002
 STUDENTS_SERVICE_URL=http://localhost:4003
-PAYMENTS_SERVICE_URL=http://localhost:4004
+CLASSES_SERVICE_URL=http://localhost:4005
+NOTIFICATIONS_SERVICE_URL=http://localhost:4006
+PAYMENTS_SERVICE_URL=http://localhost:4008
 RESOURCES_SERVICE_URL=http://localhost:5001
+RAG_SERVICE_URL=http://localhost:5003
+
+# Stripe (Pour paiements en ligne)
+STRIPE_SECRET_KEY=sk_test_YOUR_STRIPE_SECRET_KEY
+STRIPE_PUBLISHABLE_KEY=pk_test_YOUR_STRIPE_PUBLISHABLE_KEY
+STRIPE_SIMULATION_MODE=true
+
+# RAG Chatbot (OpenAI + Llama-Index)
+OPENAI_API_KEY=sk-proj-YOUR_KEY_HERE
+RAG_MODE=auto
+RAG_MODEL=gpt-4o-mini
+RAG_SIMILARITY_TOP_K=5
 
 # CORS
 CORS_ORIGIN=http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176
@@ -203,8 +248,27 @@ cd server && npm run dev
 npm run dev
 ```
 
-L'application sera accessible sur `http://localhost:5173`  
+L'application sera accessible sur `http://localhost:5174`  
 L'API Gateway sur `http://localhost:3001`
+
+## ⚙️ Configuration des Ports
+
+**Services actifs:**
+
+| Service | Port | URL |
+|---------|------|-----|
+| Frontend | 5174 | http://localhost:5174 |
+| Gateway | 3001 | http://localhost:3001 |
+| Auth | 4001 | http://localhost:4001 |
+| Applications | 4002 | http://localhost:4002 |
+| Students | 4003 | http://localhost:4003 |
+| Classes | 4005 | http://localhost:4005 |
+| Notifications | 4006 | http://localhost:4006 |
+| **Payments** | **4008** | http://localhost:4008 ⚠️ |
+| Resources | 5001 | http://localhost:5001 |
+| RAG Chatbot | 5003 | http://localhost:5003 |
+
+> ⚠️ **Note importante**: Le service Payments utilise le port **4008** au lieu de 4004 en raison de processus zombie sur le port 4004.
 
 ## 📖 Documentation
 
@@ -277,8 +341,23 @@ Le formulaire d'inscription est accessible publiquement (sans authentification) 
 
 ### Accéder à l'application
 ```
-http://localhost:5173
+http://localhost:5174
 ```
+
+## 🎯 Comptes de Test
+
+### Administrateur
+- **Email:** admin@schoolreg.com
+- **Mot de passe:** admin123
+- **Rôle:** Administrateur complet
+
+### Parent (Exemple)
+- **Code d'accès élève:** SR2024-ABC123 (généré automatiquement)
+- **Interface:** Dashboard parent avec solde et paiements
+
+### Élève (Exemple)
+- **Code d'accès:** SR2024-ABC123
+- **Interface:** Dashboard élève avec informations personnelles
 
 ## 🛠️ Scripts Disponibles
 
@@ -350,9 +429,18 @@ project/
 │       │   ├── src/index.js
 │       │   └── package.json
 │       │
-│       └── resources-fastapi/      # Service Resources (Port 5001)
-│           ├── app/main.py
-│           └── requirements.txt
+│       ├── resources-fastapi/      # Service Resources (Port 5001)
+│       │   ├── app/main.py
+│       │   └── requirements.txt
+│       │
+│       └── RAG/                    # Service RAG Chatbot IA (Port 5003)
+│           ├── app/
+│           │   ├── main.py        # API FastAPI
+│           │   └── rag_engine.py  # Moteur RAG (Llama-Index)
+│           ├── data/              # Documents indexés (non versionné)
+│           ├── storage/           # Index vectoriel (généré auto)
+│           ├── requirements.txt
+│           └── README.md          # Documentation détaillée
 │
 ├── .env                            # Configuration unique
 ├── start-all.ps1                   # Script de démarrage
@@ -386,10 +474,90 @@ _ [Stripe](https://stripe.com)
 - [Lucide Icons](https://lucide.dev)
 - [PostgreSQL](https://postgresql.org)
 
+## 🔧 Dépannage (Troubleshooting)
+
+### Problèmes Courants
+
+#### 1. Erreur CORS ou Timeout sur Dashboard
+
+**Symptôme:**
+```
+Error fetching dashboard stats: Error: timeout
+Blocage d'une requête multiorigine (Cross-Origin Request)
+```
+
+**Cause:** Service `students-node` non démarré sur le port 4003
+
+**Solution:**
+```powershell
+cd microservices/services/students-node
+python -m uvicorn app.main:app --host 0.0.0.0 --port 4003 --reload
+```
+
+#### 2. Erreur 404 sur /checkout-session
+
+**Symptôme:**
+```
+XHR POST http://localhost:4004/checkout-session [404 Not Found]
+```
+
+**Cause:** Service Payments non démarré ou sur mauvais port
+
+**Solution:**
+```powershell
+cd microservices/services/payments-fastapi
+uvicorn app.main:app --host 0.0.0.0 --port 4008 --reload
+```
+
+Vérifiez que le frontend pointe vers le bon port dans `src/lib/apiClient.ts`:
+```typescript
+const PAYMENTS_URL = 'http://localhost:4008';
+```
+
+#### 3. Erreur 405 Method Not Allowed sur DELETE /payments
+
+**Symptôme:**
+```
+XHR DELETE http://localhost:4003/payments/{id} [405 Method Not Allowed]
+```
+
+**Cause:** Endpoint DELETE manquant (corrigé dans version actuelle)
+
+**Solution:** Service students-node contient maintenant l'endpoint DELETE avec ajustement automatique du `tuition_paid`
+
+#### 4. Processus Zombie sur Port 4004
+
+**Symptôme:** Impossible de démarrer payments-fastapi sur 4004
+
+**Solution temporaire:** Utiliser le port 4008
+```powershell
+uvicorn app.main:app --host 0.0.0.0 --port 4008 --reload
+```
+
+**Solution permanente:** Redémarrer Windows pour nettoyer les processus zombie
+
+#### 5. Hard Refresh Nécessaire
+
+Si les changements ne s'appliquent pas:
+- **Windows:** `Ctrl + Shift + R` ou `Ctrl + F5`
+- Ouvrir DevTools (F12) → Clic droit sur Rafraîchir → "Vider le cache et actualiser"
+
+### Vérifier les Services
+
+**Windows PowerShell:**
+```powershell
+# Vérifier tous les services
+netstat -ano | findstr ":4003 :4008 :5174"
+
+# Arrêter un processus
+taskkill /F /PID <PID>
+```
+
 ## 📞 Support
 
 Pour toute question ou problème:
 - Consultez la [documentation](docs/)
+- Vérifiez la section Dépannage ci-dessus
 - Ouvrez une issue sur GitHub
 - Contactez l'équipe de support
 

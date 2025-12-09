@@ -506,6 +506,104 @@ app.delete(
   }
 );
 
+// Access application by code (8-character code from application ID)
+app.post('/applications/access-by-code', async (req, res) => {
+  try {
+    const { code } = req.body;
+    
+    if (!code || typeof code !== 'string' || code.length !== 8) {
+      return res.status(400).json({ error: 'Code invalide. Le code doit contenir 8 caractères.' });
+    }
+
+    // Find application starting with this code
+    const applications = await prisma.application.findMany({
+      where: {
+        id: {
+          startsWith: code.toLowerCase()
+        }
+      },
+      include: {
+        student: true,
+        documents: true
+      }
+    });
+
+    if (applications.length === 0) {
+      return res.status(404).json({ error: 'Aucune demande trouvée avec ce code.' });
+    }
+
+    if (applications.length > 1) {
+      return res.status(400).json({ error: 'Code ambigu. Veuillez contacter l\'administration.' });
+    }
+
+    const application = applications[0];
+
+    // Check if application is approved
+    if (application.status !== 'approved') {
+      return res.status(403).json({ 
+        error: 'Cette demande n\'a pas encore été approuvée.',
+        status: application.status,
+        submittedAt: application.submittedAt
+      });
+    }
+
+    // Check if student exists
+    if (!application.student) {
+      return res.status(404).json({ error: 'Aucun profil élève associé à cette demande.' });
+    }
+
+    // Get student user account
+    const studentUser = await prisma.user.findFirst({
+      where: {
+        studentId: application.student.id
+      }
+    });
+
+    if (!studentUser) {
+      return res.status(404).json({ error: 'Aucun compte utilisateur trouvé pour cet élève.' });
+    }
+
+    // Generate JWT token for the student
+    const token = jwt.sign(
+      {
+        userId: studentUser.id,
+        email: studentUser.email,
+        role: studentUser.role,
+        fullName: studentUser.fullName,
+        studentId: application.student.id
+      },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    res.json({
+      success: true,
+      message: 'Accès autorisé',
+      application: {
+        id: application.id,
+        code: application.id.substring(0, 8),
+        firstName: application.firstName,
+        lastName: application.lastName,
+        status: application.status,
+        program: application.program,
+        session: application.session
+      },
+      student: application.student,
+      user: {
+        id: studentUser.id,
+        email: studentUser.email,
+        role: studentUser.role,
+        fullName: studentUser.fullName,
+        studentId: application.student.id
+      },
+      token
+    });
+  } catch (error) {
+    console.error('Error accessing application by code:', error);
+    res.status(500).json({ error: 'Erreur lors de l\'accès au profil.' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`applications-node listening on http://localhost:${PORT}`);
 });

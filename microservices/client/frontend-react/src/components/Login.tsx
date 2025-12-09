@@ -66,16 +66,29 @@ export default function Login({ onRegisterClick }: LoginProps = {}) {
           return;
         }
         
-        // Admin/Direction restent sur /admin
+        // Rediriger Admin/Direction vers /admin
+        if (result.user.role === 'admin' || result.user.role === 'direction') {
+          window.location.href = '/admin';
+          return;
+        }
+        
+        // Par défaut : recharger la page
         window.location.reload();
       } else {
-        const result = await AuthAPI.signUp({
+        await AuthAPI.signUp({
           email,
           password,
           fullName,
           role,
         });
-        // Recharger la page pour mettre à jour l'état
+        
+        // Rediriger selon le rôle après inscription
+        if (role === 'admin' || role === 'direction') {
+          window.location.href = '/admin';
+          return;
+        }
+        
+        // Autres rôles : recharger la page
         window.location.reload();
       }
     } catch (err: any) {

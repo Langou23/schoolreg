@@ -5,6 +5,7 @@ import Login from './components/Login';
 import AdminHome from './components/AdminHome';
 import UserHome from './components/UserHome';
 import PublicRegister from './components/PublicRegister';
+import ChatBot from './components/ChatBot';
 
 function App() {
   const [loading, setLoading] = useState(true);
@@ -35,6 +36,7 @@ function App() {
   }
 
   if (!user) {
+    // Afficher le formulaire d'inscription
     if (showRegister) {
       return (
         <PublicRegister
@@ -46,16 +48,28 @@ function App() {
         />
       );
     }
+
+    // Afficher la page de connexion
     return <Login onRegisterClick={() => setShowRegister(true)} />;
   }
 
   // Admin et Direction voient AdminHome
   if (user.role === 'admin' || user.role === 'direction') {
-    return <AdminHome user={user} onLogout={handleLogout} />;
+    return (
+      <>
+        <AdminHome user={user} onLogout={handleLogout} />
+        <ChatBot />
+      </>
+    );
   }
 
   // Parent et Élève voient UserHome
-  return <UserHome user={user} onLogout={handleLogout} />;
+  return (
+    <>
+      <UserHome user={user} onLogout={handleLogout} />
+      <ChatBot />
+    </>
+  );
 }
 
 export default App;

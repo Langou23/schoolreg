@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { UserProfile } from '../types';
-import { FileText, User, GraduationCap, Sparkles, ArrowRight } from 'lucide-react';
+import { FileText, User, GraduationCap, Sparkles, ArrowRight, CheckCircle } from 'lucide-react';
 import PublicApplicationForm from './PublicApplicationForm';
 import UserDashboard from './UserDashboard';
 import StudentOwnDashboard from './StudentOwnDashboard';
 import Navbar from './Navbar';
+import { ApplicationsApi } from '../lib/apiClient';
 
 interface UserHomeProps {
   user: UserProfile;
@@ -14,6 +15,43 @@ interface UserHomeProps {
 export default function UserHome({ user, onLogout }: UserHomeProps) {
   const [currentView, setCurrentView] = useState<'home' | 'application' | 'profile'>('home');
   const [dashboardKey, setDashboardKey] = useState(Date.now());
+  const [hasApplication, setHasApplication] = useState(false);
+  const [loadingApplication, setLoadingApplication] = useState(true);
+
+  // Vérifier si l'élève a déjà une demande d'inscription APPROUVÉE
+  useEffect(() => {
+    const checkExistingApplication = async () => {
+      console.log('🔍 Vérification inscription pour:', user.email, 'Role:', user.role);
+      
+      if (user.role === 'student' && user.email) {
+        try {
+          const applications = await ApplicationsApi.list({ parentEmail: user.email });
+          console.log('📄 Applications trouvées:', applications.length);
+          console.log('📄 Détails applications:', applications);
+          
+          // ✅ Vérifier UNIQUEMENT les demandes approuvées (pas pending)
+          const approvedApp = applications.find((app: any) => 
+            app.status === 'approved'
+          );
+          
+          if (approvedApp) {
+            console.log('✅ INSCRIPTION APPROUVÉE TROUVÉE:', approvedApp);
+          } else {
+            console.log('❌ Aucune inscription approuvée. Statuts:', applications.map((a: any) => a.status));
+          }
+          
+          setHasApplication(!!approvedApp);
+          console.log('📋 hasApplication défini à:', !!approvedApp);
+        } catch (error) {
+          console.error('❌ Erreur lors de la vérification des applications:', error);
+        }
+      } else {
+        console.log('⚠️ Pas un étudiant ou pas d\'email');
+      }
+      setLoadingApplication(false);
+    };
+    checkExistingApplication();
+  }, [user]);
 
   const handleApplicationSuccess = () => {
     // Forcer le rechargement du dashboard
@@ -79,31 +117,58 @@ export default function UserHome({ user, onLogout }: UserHomeProps) {
 
         {/* Options avec animations */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* Inscription en ligne */}
+          {/* Inscription en ligne - Grisé si l'élève a une inscription approuvée */}
           <button
-            onClick={() => setCurrentView('application')}
-            className="relative bg-white rounded-2xl shadow-lg p-8 hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2 text-left group overflow-hidden border border-gray-100"
+            onClick={() => {
+              if (user.role === 'student' && hasApplication) {
+                // Empêcher le clic si inscription déjà approuvée
+                return;
+              }
+              setCurrentView('application');
+            }}
+            disabled={user.role === 'student' && (loadingApplication || hasApplication)}
+            className={`relative bg-white rounded-2xl shadow-lg p-8 transition-all duration-300 text-left group overflow-hidden border ${
+              user.role === 'student' && hasApplication
+                ? 'border-gray-300 opacity-50 cursor-not-allowed bg-gray-50'
+                : 'border-gray-100 hover:shadow-2xl transform hover:-translate-y-2'
+            }`}
           >
             {/* Gradient background on hover */}
             <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-indigo-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             
             <div className="relative z-10">
-              <div className="bg-gradient-to-br from-blue-600 to-indigo-600 w-20 h-20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300 shadow-lg">
+              <div className={`w-20 h-20 rounded-2xl flex items-center justify-center mb-6 transition-transform duration-300 shadow-lg ${
+                user.role === 'student' && hasApplication
+                  ? 'bg-gray-400 group-hover:scale-100'
+                  : 'bg-gradient-to-br from-blue-600 to-indigo-600 group-hover:scale-110'
+              }`}>
                 <FileText className="w-10 h-10 text-white" />
               </div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-3 group-hover:text-blue-600 transition-colors">
-                📝 Inscription en ligne
+              <h2 className="text-2xl font-bold mb-3 transition-colors">
+                {user.role === 'student' && hasApplication 
+                  ? '✅ Inscription validée' 
+                  : '📝 Inscription en ligne'
+                }
               </h2>
               <p className="text-gray-600 mb-4 leading-relaxed">
-                {user.role === 'parent' 
-                  ? 'Inscrire un enfant à l\'école en quelques clics'
-                  : 'Soumettre votre demande d\'inscription facilement'
+                {user.role === 'student' && hasApplication
+                  ? 'Votre inscription a été approuvée. Vous ne pouvez soumettre qu\'une seule inscription.'
+                  : user.role === 'parent' 
+                    ? 'Inscrire un enfant à l\'école en quelques clics'
+                    : 'Soumettre votre demande d\'inscription facilement'
                 }
               </p>
-              <div className="flex items-center gap-2 text-blue-600 font-semibold group-hover:gap-4 transition-all">
-                Commencer l'inscription
-                <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-              </div>
+              {user.role === 'student' && hasApplication ? (
+                <div className="flex items-center gap-2 text-gray-500 font-semibold">
+                  <CheckCircle className="w-5 h-5" />
+                  Inscription complétée
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-blue-600 font-semibold group-hover:gap-4 transition-all">
+                  Commencer l'inscription
+                  <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                </div>
+              )}
             </div>
           </button>
 
