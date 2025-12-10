@@ -33,7 +33,7 @@ export default function AccessByCode({ onBack, onSuccess }: AccessByCodeProps) {
         localStorage.setItem('user', JSON.stringify(response.user));
 
         // Notification de succès
-        console.log('✅ Accès autorisé:', response);
+        console.log(' Accès autorisé:', response);
 
         // Rediriger vers le dashboard
         onSuccess(response.token, response.user);
@@ -41,7 +41,7 @@ export default function AccessByCode({ onBack, onSuccess }: AccessByCodeProps) {
         setError('Réponse invalide du serveur');
       }
     } catch (err: any) {
-      console.error('❌ Erreur lors de l\'accès par code:', err);
+      console.error(' Erreur lors de l\'accès par code:', err);
       
       if (err.response?.data?.error) {
         setError(err.response.data.error);

@@ -28,7 +28,7 @@ export default function ChatBot({ isOpen = false, onClose }: ChatBotProps) {
     {
       id: '1',
       type: 'bot',
-      content: '👋 Bonjour ! Je suis l\'assistant virtuel de SchoolReg. Comment puis-je vous aider aujourd\'hui ?',
+      content: ' Bonjour ! Je suis l\'assistant virtuel de SchoolReg. Comment puis-je vous aider aujourd\'hui ?',
       timestamp: new Date()
     }
   ]);
@@ -102,8 +102,8 @@ export default function ChatBot({ isOpen = false, onClose }: ChatBotProps) {
         id: (Date.now() + 1).toString(),
         type: 'bot',
         content: (error instanceof DOMException && error.name === 'AbortError')
-          ? '⏱️ Le serveur met trop de temps à répondre. Réessayez dans un instant.'
-          : '❌ Désolé, une erreur s\'est produite. Veuillez réessayer.',
+          ? ' Le serveur met trop de temps à répondre. Réessayez dans un instant.'
+          : ' Désolé, une erreur s\'est produite. Veuillez réessayer.',
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -124,7 +124,7 @@ export default function ChatBot({ isOpen = false, onClose }: ChatBotProps) {
       {
         id: '1',
         type: 'bot',
-        content: '👋 Conversation réinitialisée. Comment puis-je vous aider ?',
+        content: ' Conversation réinitialisée. Comment puis-je vous aider ?',
         timestamp: new Date()
       }
     ]);
@@ -232,7 +232,7 @@ export default function ChatBot({ isOpen = false, onClose }: ChatBotProps) {
                       }`}
                       title={message.modelUsed}
                     >
-                      {message.usingOpenai ? '🤖 OpenAI' : message.usingOllama ? '🦙 Ollama' : 'AI'}
+                      {message.usingOpenai ? ' OpenAI' : message.usingOllama ? '🦙 Ollama' : 'AI'}
                     </span>
                   </div>
                 )}

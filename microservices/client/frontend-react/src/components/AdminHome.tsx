@@ -65,13 +65,13 @@ export default function AdminHome({ user, onLogout }: AdminHomeProps) {
           pendingPayments: data.stats.pendingPayments || 0,
           recentApplications: data.stats.recentApplications || [],
         };
-        console.log('📊 Nouveau stats à afficher:', newStats);
+        console.log(' Nouveau stats à afficher:', newStats);
         setStats(newStats);
       } else {
         throw new Error('Format de réponse invalide');
       }
     } catch (error) {
-      console.error('❌ Error fetching dashboard stats:', error);
+      console.error(' Error fetching dashboard stats:', error);
       setStats({ 
         totalStudents: 0, 
         pendingApplications: 0, 

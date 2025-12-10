@@ -45,7 +45,7 @@ export default function EnrollmentManager({ onClose, onSuccess }: EnrollmentMana
       // Extraire le message d'erreur du backend
       const errorMessage = err.response?.data?.detail || err.message || 'Une erreur est survenue';
       setError(errorMessage);
-      console.error('❌ Erreur lors de l\'inscription:', errorMessage);
+      console.error(' Erreur lors de l\'inscription:', errorMessage);
     } finally {
       setLoading(false);
     }

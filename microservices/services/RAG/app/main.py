@@ -1,6 +1,39 @@
 """
-Service RAG FastAPI pour SchoolReg
-Expose un chatbot intelligent basé sur la documentation
+============================================
+SERVICE DE CHATBOT IA (RAG - Retrieval Augmented Generation)
+============================================
+Port: 5003 (par défaut) | Python + FastAPI + LlamaIndex + OpenAI/Ollama
+
+Responsabilités:
+- Chatbot intelligent basé sur la documentation SchoolReg
+- RAG (Retrieval Augmented Generation): Recherche + Génération
+- Recherche sémantique dans les documents
+- Génération de réponses contextualisées
+- Support OpenAI (GPT-4, GPT-3.5) et Ollama (local)
+
+Technologies:
+- LlamaIndex: Framework RAG
+- VectorStore: Stockage des embeddings pour recherche
+- OpenAI API: Génération de réponses (ou Ollama en local)
+
+Fonctionnalités:
+1. /search: Recherche de passages pertinents dans la doc
+2. /chat: Chatbot conversationnel avec réponses générées
+3. /refresh: Reconstruction de l'index (admin)
+4. /stats: Statistiques du service
+
+Accessibilité:
+- Endpoints /search et /chat: Publics (avec JWT optionnel)
+- Endpoint /refresh: Réservé admin/direction
+- Permet aux parents et élèves d'obtenir de l'aide automatiquement
+
+Configuration:
+- RAG_DATA_DIR: Dossier contenant les documents sources
+- RAG_STORAGE_DIR: Dossier pour l'index vectoriel
+- OPENAI_API_KEY: Clé API OpenAI (ou Ollama en local)
+- RAG_MODEL: Modèle à utiliser (gpt-4o-mini, gpt-3.5-turbo, etc.)
+- RAG_SIMILARITY_TOP_K: Nombre de passages à récupérer (défaut: 5)
+============================================
 """
 import os
 from pathlib import Path
@@ -13,8 +46,15 @@ import jwt
 
 from app.rag_engine import RAGEngine
 
-# Charger les variables d'environnement depuis la racine du projet
+# ============================================
+# CONFIGURATION
+# ============================================
+
 def load_root_env():
+    """
+    Cherche et charge le fichier .env dans les répertoires parents
+    Remonte l'arborescence jusqu'à trouver le .env à la racine du projet
+    """
     p = Path(__file__).resolve()
     for parent in [p.parent, *p.parents]:
         env = parent / ".env"
@@ -55,13 +95,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialiser le moteur RAG au démarrage
+# Moteur RAG global (initialisé au démarrage)
 rag_engine: Optional[RAGEngine] = None
 
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialise le moteur RAG au démarrage"""
+    """
+    Initialise le moteur RAG au démarrage du service
+    
+    Processus:
+        1. Charge les documents depuis RAG_DATA_DIR
+        2. Crée/charge l'index vectoriel depuis RAG_STORAGE_DIR
+        3. Configure le modèle LLM (OpenAI ou Ollama)
+        4. Prépare le query engine pour répondre aux questions
+    
+    En cas d'erreur:
+        - Le service ne démarre pas (erreur fatale)
+        - Vérifier la config (clés API, répertoires)
+    """
     global rag_engine
     
     try:
@@ -172,7 +224,16 @@ class SearchResponse(BaseModel):
 
 @app.get("/")
 def root():
-    """Health check"""
+    """
+    GET / - Health check du service
+    
+    Retourne:
+        - service: Nom du service
+        - status: État (running)
+        - version: Version du service
+    
+    Endpoint simple pour vérifier que le service répond
+    """
     return {
         "service": "SchoolReg RAG",
         "status": "running",
@@ -183,7 +244,18 @@ def root():
 @app.get("/stats")
 def get_stats():
     """
-    Statistiques du service RAG (accessible sans authentification)
+    GET /stats - Statistiques du service RAG
+    
+    Authentification: NON requis (endpoint public)
+    
+    Retourne:
+        - Nombre de documents indexés
+        - Nombre de chunks (passages)
+        - Modèle utilisé
+        - Configuration similarity_top_k
+        - Autres métriques du moteur RAG
+    
+    Utile pour: Monitoring et debugging
     """
     if not rag_engine:
         raise HTTPException(status_code=503, detail="RAG engine not initialized")
@@ -197,15 +269,32 @@ async def search_documents(
     authorization: Optional[str] = None
 ):
     """
-    Recherche des passages pertinents dans la documentation
-    Accessible aux parents et élèves
+    GET /search - Recherche sémantique dans la documentation
     
-    Args:
-        q: Question ou terme de recherche
-        authorization: Token JWT (optionnel pour permettre accès public)
+    Authentification: Optionnelle (fonctionne avec ou sans JWT)
     
-    Returns:
-        Liste des passages les plus pertinents avec leurs scores
+    Query params:
+        - q: Question ou terme de recherche (min 3 caractères)
+    
+    Retourne:
+        - success: Booléen de succès
+        - question: Question recherchée
+        - results: Liste des passages pertinents avec scores de similarité
+        - count: Nombre de résultats
+    
+    Processus:
+        1. Convertit la question en embedding vectoriel
+        2. Recherche les passages les plus similaires (top K)
+        3. Retourne les passages avec leurs scores
+    
+    Utile pour:
+        - Recherche documentaire
+        - Auto-complétion
+        - Suggestions de contenu
+    
+    Erreurs:
+        400: Question trop courte (< 3 caractères)
+        503: Moteur RAG non initialisé
     """
     # Vérifier l'authentification si un token est fourni
     if authorization:
@@ -235,15 +324,38 @@ async def chat(
     authorization: Optional[str] = None
 ):
     """
-    Chatbot intelligent avec génération de réponse
-    Accessible aux parents et élèves
+    POST /chat - Chatbot conversationnel avec IA
     
-    Args:
-        request: Objet contenant la question
-        authorization: Token JWT (optionnel)
+    Authentification: Optionnelle (fonctionne avec ou sans JWT)
     
-    Returns:
-        Réponse générée avec les sources utilisées
+    Body:
+        - question: Question de l'utilisateur (min 3 caractères)
+    
+    Retourne:
+        - success: Booléen de succès
+        - question: Question posée
+        - answer: Réponse générée par l'IA
+        - sources: Passages sources utilisés pour la réponse
+    
+    Processus RAG (Retrieval Augmented Generation):
+        1. **Retrieval**: Recherche les passages pertinents (similarité vectorielle)
+        2. **Augmentation**: Construit un contexte avec les passages trouvés
+        3. **Generation**: Génère une réponse avec OpenAI/Ollama basée sur le contexte
+    
+    Avantages du RAG:
+        - Réponses factuelles basées sur la vraie documentation
+        - Pas d'hallucinations (sources fournies)
+        - Toujours à jour (index peut être refresh)
+    
+    Utile pour:
+        - Support automatique aux parents/élèves
+        - Réponses aux questions fréquentes
+        - Guide d'utilisation interactif
+    
+    Erreurs:
+        400: Question trop courte (< 3 caractères)
+        500: Erreur de génération
+        503: Moteur RAG non initialisé
     """
     # Vérifier l'authentification si un token est fourni
     if authorization:
@@ -276,11 +388,36 @@ async def refresh_index(
     user: dict = Depends(require_role("admin", "direction", "system"))
 ):
     """
-    Reconstruit l'index à partir des documents
-    Réservé aux administrateurs
+    POST /refresh - Reconstruit l'index vectoriel
     
-    Utilisez cet endpoint après avoir ajouté/modifié/supprimé des documents
-    dans le dossier data/
+    Authentification: JWT requis
+    Rôles autorisés: admin, direction, system
+    
+    Processus:
+        1. Recharge tous les documents depuis RAG_DATA_DIR
+        2. Recalcule les embeddings vectoriels
+        3. Reconstruit l'index de recherche
+        4. Sauvegarde dans RAG_STORAGE_DIR
+    
+    À utiliser quand:
+        - Nouveaux documents ajoutés dans data/
+        - Documents modifiés
+        - Documents supprimés
+        - Changement de modèle d'embedding
+    
+    Attention:
+        - Opération coûteuse (peut prendre du temps)
+        - Bloque le service pendant la reconstruction
+        - Consomme des crédits API si OpenAI
+    
+    Retourne:
+        - success: Booléen
+        - message: Message de confirmation
+        - stats: Nouvelles statistiques après refresh
+    
+    Erreurs:
+        500: Erreur lors de la reconstruction
+        503: Moteur RAG non initialisé
     """
     if not rag_engine:
         raise HTTPException(status_code=503, detail="RAG engine not initialized")
@@ -304,7 +441,12 @@ async def refresh_index(
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
-    """Gestionnaire d'erreurs global"""
+    """
+    Gestionnaire d'erreurs global
+    
+    Capture toutes les exceptions non gérées et retourne un JSON cohérent
+    Permet d'éviter les erreurs 500 sans message
+    """
     print(f"❌ Erreur non gérée: {str(exc)}")
     return {
         "success": False,

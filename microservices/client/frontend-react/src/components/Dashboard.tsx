@@ -46,30 +46,30 @@ export default function Dashboard() {
       
       try {
         students = await StudentsApi.list();
-        console.log('✅ Students chargés:', students.length);
+        console.log(' Students chargés:', students.length);
       } catch (e) {
-        console.error('❌ Erreur chargement students:', e);
+        console.error(' Erreur chargement students:', e);
       }
       
       try {
         classes = await ClassesApi.list();
-        console.log('✅ Classes chargées:', classes.length);
+        console.log(' Classes chargées:', classes.length);
       } catch (e) {
-        console.error('❌ Erreur chargement classes:', e);
+        console.error(' Erreur chargement classes:', e);
       }
       
       try {
         payments = await PaymentsApi.list();
-        console.log('✅ Payments chargés:', payments.length);
+        console.log(' Payments chargés:', payments.length);
       } catch (e) {
-        console.error('❌ Erreur chargement payments:', e);
+        console.error(' Erreur chargement payments:', e);
       }
       
       try {
         applications = await ApplicationsApi.list();
-        console.log('✅ Applications chargées:', applications.length);
+        console.log(' Applications chargées:', applications.length);
       } catch (e) {
-        console.error('❌ Erreur chargement applications:', e);
+        console.error(' Erreur chargement applications:', e);
       }
 
       const totalStudents = students.length;

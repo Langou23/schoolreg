@@ -37,40 +37,40 @@ export default function UserDashboard({ user, onBack }: UserDashboardProps) {
       setLoading(true);
     }
     try {
-      console.log('🔑 Token présent:', !!localStorage.getItem('auth_token'));
-      console.log('👤 Utilisateur:', user.email, '- Rôle:', user.role);
+      console.log(' Token présent:', !!localStorage.getItem('auth_token'));
+      console.log(' Utilisateur:', user.email, '- Rôle:', user.role);
       
-      console.log('📡 Appel API: StudentsApi.list()...');
+      console.log(' Appel API: StudentsApi.list()...');
       const allStudents = await StudentsApi.list();
-      console.log('✅ StudentsApi.list() réussi:', allStudents.length, 'étudiants');
+      console.log(' StudentsApi.list() réussi:', allStudents.length, 'étudiants');
       
-      console.log('📡 Appel API: PaymentsApi.list()...');
+      console.log(' Appel API: PaymentsApi.list()...');
       const allPayments = await PaymentsApi.list();
-      console.log('✅ PaymentsApi.list() réussi:', allPayments.length, 'paiements');
+      console.log(' PaymentsApi.list() réussi:', allPayments.length, 'paiements');
       
-      console.log('📡 Appel API: EnrollmentsApi.list()...');
+      console.log(' Appel API: EnrollmentsApi.list()...');
       const allEnrollments = await EnrollmentsApi.list();
-      console.log('✅ EnrollmentsApi.list() réussi:', allEnrollments.length, 'inscriptions');
+      console.log(' EnrollmentsApi.list() réussi:', allEnrollments.length, 'inscriptions');
       
-      console.log('📡 Appel API: ClassesApi.list()...');
+      console.log(' Appel API: ClassesApi.list()...');
       const allClasses = await ClassesApi.list();
-      console.log('✅ ClassesApi.list() réussi:', allClasses.length, 'classes');
+      console.log(' ClassesApi.list() réussi:', allClasses.length, 'classes');
       
-      console.log('📡 Appel API: ApplicationsApi.list()...');
+      console.log(' Appel API: ApplicationsApi.list()...');
       const allApplications = await ApplicationsApi.list();
-      console.log('✅ ApplicationsApi.list() réussi:', allApplications.length, 'applications');
+      console.log(' ApplicationsApi.list() réussi:', allApplications.length, 'applications');
 
-      console.log('📊 Total étudiants dans la BD:', allStudents.length);
-      console.log('📧 Email utilisateur connecté:', user.email);
-      console.log('👤 Rôle:', user.role);
+      console.log(' Total étudiants dans la BD:', allStudents.length);
+      console.log(' Email utilisateur connecté:', user.email);
+      console.log(' Rôle:', user.role);
 
       if (user.role === 'parent') {
-        console.log('🔍 DEBUT RECHERCHE ENFANTS');
-        console.log('📧 Email parent connecté:', user.email);
-        console.log('📊 Total étudiants dans BD:', allStudents.length);
+        console.log(' DEBUT RECHERCHE ENFANTS');
+        console.log(' Email parent connecté:', user.email);
+        console.log(' Total étudiants dans BD:', allStudents.length);
         
         // Afficher quelques exemples d'emails pour debug
-        console.log('📋 Exemples d\'emails dans la BD:');
+        console.log(' Exemples d\'emails dans la BD:');
         allStudents.slice(0, 5).forEach((s: Student) => {
           console.log('  -', s.parentEmail, '→', s.firstName, s.lastName);
         });
@@ -79,21 +79,21 @@ export default function UserDashboard({ user, onBack }: UserDashboardProps) {
         const linkedStudents = allStudents.filter((s: Student) => {
           const match = s.parentEmail === user.email;
           if (match) {
-            console.log('✅ MATCH TROUVE:', s.firstName, s.lastName);
+            console.log(' MATCH TROUVE:', s.firstName, s.lastName);
           }
           return match;
         });
         
-        console.log('👨‍👩‍👧 RESULTAT: Étudiants trouvés:', linkedStudents.length);
+        console.log(' RESULTAT: Étudiants trouvés:', linkedStudents.length);
         
         // Charger toutes les inscriptions liées à ce parent
         const linkedApplications = allApplications.filter((a: Application) => a.parentEmail === user.email);
-        console.log('📝 Inscriptions trouvées:', linkedApplications.length);
+        console.log(' Inscriptions trouvées:', linkedApplications.length);
         setApplications(linkedApplications);
         
         // Afficher tous les emails parents pour déboguer
         if (linkedStudents.length === 0) {
-          console.log('⚠️ AUCUN ÉTUDIANT TROUVÉ!');
+          console.log(' AUCUN ÉTUDIANT TROUVÉ!');
           console.log('Vérifiez que l\'email correspond exactement');
         }
         
@@ -130,13 +130,13 @@ export default function UserDashboard({ user, onBack }: UserDashboardProps) {
             const studentApplications = allApplications.filter((a: Application) => a.studentId === linkedStudent.id);
             setApplications(studentApplications);
           } else {
-            console.log('🎓 Aucun profil élève lié trouvé - affichage de la page de liaison');
+            console.log(' Aucun profil élève lié trouvé - affichage de la page de liaison');
             setShowLinkingInterface(true);
           }
         }
       }
     } catch (error: any) {
-      console.error('❌ ERREUR lors du chargement des données:');
+      console.error(' ERREUR lors du chargement des données:');
       console.error('Type:', error.constructor.name);
       console.error('Message:', error.message);
       console.error('Response:', error.response?.status, error.response?.data);
@@ -225,7 +225,7 @@ export default function UserDashboard({ user, onBack }: UserDashboardProps) {
                   </div>
                   <div className="flex-1">
                     <h3 className="font-bold text-blue-900 mb-2">
-                      📋 Inscriptions en cours de traitement
+                       Inscriptions en cours de traitement
                     </h3>
                     <p className="text-sm text-blue-800">
                       Vos demandes d'inscription ont été reçues et sont en cours d'examen par l'administration. 
@@ -260,8 +260,8 @@ export default function UserDashboard({ user, onBack }: UserDashboardProps) {
                             ? 'bg-red-100 text-red-700'
                             : 'bg-yellow-100 text-yellow-700'
                         }`}>
-                          {app.status === 'approved' ? '✅ Approuvée' : 
-                           app.status === 'rejected' ? '❌ Refusée' : 
+                          {app.status === 'approved' ? ' Approuvée' : 
+                           app.status === 'rejected' ? ' Refusée' : 
                            '⏳ En attente'}
                         </div>
                       </div>
@@ -271,7 +271,7 @@ export default function UserDashboard({ user, onBack }: UserDashboardProps) {
                       {app.status === 'pending' && (
                         <div className="mt-3 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                           <p className="text-xs text-yellow-800">
-                            💡 <strong>Prochaine étape:</strong> L'école examinera le dossier et vous contactera. 
+                             <strong>Prochaine étape:</strong> L'école examinera le dossier et vous contactera. 
                             Vous recevrez une notification par email à <strong>{user.email}</strong>
                           </p>
                         </div>
@@ -426,8 +426,8 @@ export default function UserDashboard({ user, onBack }: UserDashboardProps) {
                         ? 'bg-red-100 text-red-700'
                         : 'bg-amber-100 text-amber-700'
                     }`}>
-                      {app.status === 'approved' && '✅ Approuvé'}
-                      {app.status === 'rejected' && '❌ Refusé'}
+                      {app.status === 'approved' && ' Approuvé'}
+                      {app.status === 'rejected' && ' Refusé'}
                       {app.status === 'pending' && '⏳ En attente'}
                     </div>
                   </div>
@@ -864,7 +864,7 @@ export default function UserDashboard({ user, onBack }: UserDashboardProps) {
               <div className="flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="font-semibold text-blue-900 mb-1">ℹ️ Modification du profil</p>
+                  <p className="font-semibold text-blue-900 mb-1"> Modification du profil</p>
                   <p className="text-sm text-blue-800">
                     Pour modifier les informations du profil de l'élève, veuillez contacter l'administration de l'école. 
                     Seuls les documents peuvent être ajoutés via votre espace.
@@ -1003,7 +1003,7 @@ export default function UserDashboard({ user, onBack }: UserDashboardProps) {
                     )}
                   </div>
                   <div className="mt-3 p-2 bg-red-50 rounded-lg">
-                    <p className="text-xs text-red-800">ℹ️ Informations confidentielles - personnel autorisé uniquement</p>
+                    <p className="text-xs text-red-800"> Informations confidentielles - personnel autorisé uniquement</p>
                   </div>
                 </div>
               )}

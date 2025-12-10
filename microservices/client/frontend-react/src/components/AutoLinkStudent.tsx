@@ -42,7 +42,7 @@ export default function AutoLinkStudent({ userEmail, userId, onLinkSuccess }: Au
     try {
       const result = await StudentLinkingApi.linkByParentEmail(userEmail, userId);
       
-      setMessage(`✅ Profil lié avec succès: ${result.student.firstName} ${result.student.lastName}`);
+      setMessage(` Profil lié avec succès: ${result.student.firstName} ${result.student.lastName}`);
       
       if (onLinkSuccess) {
         onLinkSuccess(result.student);
@@ -54,7 +54,7 @@ export default function AutoLinkStudent({ userEmail, userId, onLinkSuccess }: Au
       }, 2000);
       
     } catch (error) {
-      setMessage(`❌ Erreur de liaison: ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
+      setMessage(` Erreur de liaison: ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
     } finally {
       setLinking(false);
     }

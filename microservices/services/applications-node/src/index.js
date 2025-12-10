@@ -1,3 +1,18 @@
+/**
+ * ============================================
+ * SERVICE DE GESTION DES DEMANDES D'INSCRIPTION
+ * ============================================
+ * Port: 4002 | Node.js + Express + Prisma
+ * 
+ * Responsabilités:
+ * - Réception et validation des demandes d'inscription
+ * - Upload de documents (certificat, photo, bulletins)
+ * - Approbation/rejet avec création automatique des comptes
+ * - Validation de l'âge selon le programme
+ * - Accès par code unique
+ * ============================================
+ */
+
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -13,18 +28,27 @@ import jwt from 'jsonwebtoken';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-// Charge le .env à la racine du dépôt
+
+// Charger les variables d'environnement
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 
 const prisma = new PrismaClient();
-
 const app = express();
+
+// Configuration
 const PORT = process.env.APPLICATIONS_PORT || 4003;
 const NOTIFICATIONS_URL = process.env.NOTIFICATIONS_SERVICE_URL || 'http://localhost:4006';
 const SERVICE_JWT = process.env.SERVICE_JWT;
 const JWT_SECRET = process.env.JWT_SECRET || 'default-secret';
 
-// JWT Authentication Middleware
+// ============================================
+// MIDDLEWARES ET UTILITAIRES
+// ============================================
+
+/**
+ * Extrait et vérifie le token JWT de la requête
+ * @returns {object|null} Payload du token {userId, role, email} ou null
+ */
 function getCurrentUser(req, res) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -39,6 +63,11 @@ function getCurrentUser(req, res) {
   }
 }
 
+/**
+ * Middleware qui exige un ou plusieurs rôles spécifiques
+ * Usage: app.post('/route', requireRole('admin', 'direction'), handler)
+ * @param {...string} allowedRoles - Rôles autorisés
+ */
 function requireRole(...allowedRoles) {
   return (req, res, next) => {
     const user = getCurrentUser(req, res);
@@ -53,7 +82,10 @@ function requireRole(...allowedRoles) {
   };
 }
 
-// Helper function to send notification
+/**
+ * Envoie une notification via le service notifications-node
+ * Ne bloque jamais le flux principal (erreurs capturées)
+ */
 async function sendNotification(notificationData) {
   try {
     await axios.post(`${NOTIFICATIONS_URL}/system`, notificationData);
@@ -67,31 +99,55 @@ app.use(express.json({ limit: '10mb' }));
 
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'applications-node' }));
 
-// Helpers
+// ============================================
+// FONCTIONS UTILITAIRES
+// ============================================
+
+/**
+ * Convertit le nom de session en date de début
+ * Ex: "Automne 2024" -> 1er septembre 2024
+ * Utilisé pour valider l'âge des élèves à l'inscription
+ */
 function parseSessionStart(session) {
   const s = String(session || '').toLowerCase();
   const m = String(session || '').match(/(20\d{2})/);
   const year = m ? parseInt(m[1], 10) : new Date().getFullYear();
-  if (s.includes('automne')) return new Date(year, 8, 1);
-  if (s.includes('hiver')) return new Date(year, 0, 15);
-  if (s.includes('été') || s.includes('ete')) return new Date(year, 5, 15);
+  if (s.includes('automne')) return new Date(year, 8, 1);  // 1er septembre
+  if (s.includes('hiver')) return new Date(year, 0, 15);   // 15 janvier
+  if (s.includes('été') || s.includes('ete')) return new Date(year, 5, 15); // 15 juin
   return new Date();
 }
 
+/**
+ * Calcule l'âge d'une personne à une date donnée
+ * @param {Date} dob - Date de naissance
+ * @param {Date} on - Date de référence
+ * @returns {number} Âge en années
+ */
 function ageOn(dob, on) {
   let age = on.getFullYear() - dob.getFullYear();
   const m = on.getMonth() - dob.getMonth();
+  // Ajuster si l'anniversaire n'est pas encore passé
   if (m < 0 || (m === 0 && on.getDate() < dob.getDate())) age--;
   return age;
 }
 
+/**
+ * Normalise et valide les données d'une demande d'inscription
+ * Accepte les formats camelCase et snake_case
+ * @throws {Error} 'INVALID_DOB' si la date de naissance est invalide
+ */
 function mapApplicationBody(bodyIn) {
   const b = bodyIn || {};
+  
+  // Extraire et valider la date de naissance
   const dobRaw = b.dateOfBirth ?? b.date_of_birth;
   const dob = dobRaw ? new Date(dobRaw) : null;
   if (!dob || isNaN(dob.getTime())) {
     throw new Error('INVALID_DOB');
   }
+  
+  // Mapper tous les champs (support camelCase et snake_case)
   const data = {
     firstName: b.firstName ?? b.first_name,
     lastName: b.lastName ?? b.last_name,
@@ -143,24 +199,52 @@ app.post('/upload', upload.single('file'), (req, res) => {
   return res.status(201).json({ fileId: file.filename, url: absUrl, relativePath, mimeType: file.mimetype, size: file.size });
 });
 
-// Applications API
+// ============================================
+// ENDPOINTS API
+// ============================================
+
+/**
+ * GET /applications - Liste les demandes d'inscription
+ * 
+ * Query params:
+ *   - parentEmail: Filtrer par email du parent
+ *   - status: Filtrer par statut (pending, approved, rejected)
+ * 
+ * Retourne: Liste des demandes avec documents et profil élève associé
+ */
 app.get('/applications', async (req, res) => {
   try {
     const { parentEmail, status } = req.query;
     const where = {};
     if (parentEmail) where.parentEmail = String(parentEmail);
     if (status) where.status = String(status);
+    
     const applications = await prisma.application.findMany({
       where,
       include: { documents: true, student: true },
       orderBy: { submittedAt: 'desc' },
     });
+    
     res.json(applications);
   } catch (e) {
     res.status(500).json({ error: 'Failed to fetch applications' });
   }
 });
 
+/**
+ * POST /applications - Crée une nouvelle demande d'inscription
+ * 
+ * Validations:
+ *   - Tous les champs obligatoires présents
+ *   - Date de naissance valide
+ *   - Âge conforme au programme (12-17 ans pour le secondaire)
+ *   - Enum valides (gender, status)
+ * 
+ * Processus:
+ *   1. Validation des données
+ *   2. Vérification de l'âge si programme secondaire
+ *   3. Création dans la BD avec statut 'pending'
+ */
 app.post(
   '/applications',
   [
@@ -177,9 +261,11 @@ app.post(
   ],
   async (req, res) => {
     try {
+      // Valider le format des données
       const errors = validationResult(req);
       if (!errors.isEmpty()) return res.status(400).json({ error: errors.array()[0].msg });
 
+      // Mapper et valider les données
       let data;
       try {
         data = mapApplicationBody(req.body);
@@ -188,6 +274,7 @@ app.post(
         throw e;
       }
 
+      // Validation spéciale pour le niveau secondaire (12-17 ans)
       const hasSecondary = Boolean(req.body.secondary_level ?? data.secondaryLevel);
       if (hasSecondary) {
         const sessionStr = String(req.body.session ?? data.session ?? '');
@@ -275,7 +362,29 @@ app.post(
   }
 );
 
-// Approve application
+/**
+ * POST /applications/:id/approve - Approuve une demande d'inscription
+ * 
+ * Rôles autorisés: admin, direction
+ * 
+ * Processus complet:
+ *   1. Vérifier que la demande existe et n'est pas déjà approuvée
+ *   2. Calculer les frais de scolarité selon le programme
+ *   3. Hacher les mots de passe par défaut (parent123, student123)
+ *   4. Transaction atomique:
+ *      - Créer le profil élève
+ *      - Créer/MAJ le compte parent
+ *      - Créer le compte élève
+ *      - Marquer la demande comme approuvée
+ *   5. Miroir du profil dans students-node (FastAPI)
+ *   6. Envoyer notifications au parent et élève
+ * 
+ * Frais de scolarité:
+ *   - Programme enrichi: 700$
+ *   - Programme PEI: 800$
+ *   - Sport/Arts: 750$
+ *   - Autre: 500$
+ */
 app.post(
   '/applications/:id/approve',
   requireRole('admin', 'direction'),
@@ -285,27 +394,31 @@ app.post(
     const application = await prisma.application.findUnique({ where: { id } });
     if (!application) return res.status(404).json({ error: 'Application not found' });
 
+    // Vérifier si déjà approuvée
     if (application.status === 'approved') {
       return res.status(400).json({ error: 'Application already approved' });
     }
 
-    // Simple tuition calculation based on program
+    // Calcul automatique des frais selon le programme
     const program = application.program?.toLowerCase() || '';
-    let tuitionAmount = 500;
+    let tuitionAmount = 500;  // Par défaut
     if (program.includes('enrich')) tuitionAmount = 700;
     else if (program.includes('pei')) tuitionAmount = 800;
     else if (program.includes('sport') || program.includes('arts')) tuitionAmount = 750;
 
-    // Hash passwords BEFORE transaction
+    // Hacher les mots de passe AVANT la transaction (opérations coûteuses)
     const parentPasswordHash = await bcrypt.hash('parent123', 10);
     const studentPasswordHash = await bcrypt.hash('student123', 10);
-    // Clean names: remove spaces and special characters for email
+    
+    // Générer l'email élève: prenom.nom@student.schoolreg.com
+    // Nettoyer les noms (enlever espaces et caractères spéciaux)
     const cleanFirstName = application.firstName.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '');
     const cleanLastName = application.lastName.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '');
     const studentEmail = `${cleanFirstName}.${cleanLastName}@student.schoolreg.com`;
 
+    // TRANSACTION ATOMIQUE - Tout réussit ou tout échoue
     const result = await prisma.$transaction(async (tx) => {
-      // Create student from application
+      // 1. Créer le profil élève depuis la demande
       const student = await tx.student.create({
         data: {
           firstName: application.firstName,
@@ -326,7 +439,8 @@ app.post(
         },
       });
 
-      // Create or update parent user account
+      // 2. Créer ou mettre à jour le compte parent
+      // upsert = update si existe, create sinon
       let parentUser = null;
       if (application.parentEmail) {
         parentUser = await tx.user.upsert({
@@ -343,7 +457,7 @@ app.post(
         });
       }
 
-      // Create student user account
+      // 3. Créer le compte élève
       const studentUser = await tx.user.upsert({
         where: { email: studentEmail },
         update: {
@@ -359,7 +473,7 @@ app.post(
         },
       });
 
-      // Link application to student and set status approved
+      // 4. Marquer la demande comme approuvée et lier au profil élève
       const updatedApp = await tx.application.update({
         where: { id: application.id },
         data: { status: 'approved', reviewedAt: new Date(), studentId: student.id },
@@ -368,7 +482,8 @@ app.post(
       return { student, application: updatedApp, parentUser, studentUser };
     });
 
-    // Créer/Miroir le profil dans students-node (FastAPI) et lier le compte utilisateur
+    // 5. Miroir du profil dans students-node (FastAPI)
+    // Ce service gère les élèves, on crée donc un duplicata pour la cohérence
     try {
       const studentsServiceUrl = process.env.STUDENTS_SERVICE_URL || 'http://localhost:4003';
       // Mapper les champs requis par le service students-node
@@ -440,19 +555,32 @@ app.post(
   }
 );
 
-// Reject application
+/**
+ * POST /applications/:id/reject - Rejette une demande d'inscription
+ * 
+ * Rôles autorisés: admin, direction
+ * 
+ * Processus:
+ *   1. Marquer la demande comme 'rejected'
+ *   2. Enregistrer la raison du rejet
+ *   3. Notifier le parent par email et notification
+ * 
+ * Body:
+ *   - reason (optionnel): Raison du rejet
+ */
 app.post(
   '/applications/:id/reject',
   requireRole('admin', 'direction'),
   [body('reason').optional().isString().isLength({ min: 3 })],
   async (req, res) => {
   try {
+    // Mettre à jour le statut de la demande
     const application = await prisma.application.update({
       where: { id: req.params.id },
       data: { status: 'rejected', reviewedAt: new Date(), notes: req.body.reason },
     });
 
-    // Send notification to parent if email exists
+    // Notifier le parent si l'email existe
     if (application.parentEmail) {
       const parentUser = await prisma.user.findUnique({ where: { email: application.parentEmail } });
       if (parentUser) {
@@ -472,7 +600,13 @@ app.post(
   }
 );
 
-// DELETE /applications/:id - Supprimer une candidature (admin/direction uniquement)
+/**
+ * DELETE /applications/:id - Supprime une demande d'inscription
+ * 
+ * Rôles autorisés: admin, direction
+ * 
+ * Note: Les documents associés sont supprimés en cascade (config Prisma)
+ */
 app.delete(
   '/applications/:id',
   requireRole('admin', 'direction'),
@@ -480,7 +614,7 @@ app.delete(
     try {
       const { id } = req.params;
       
-      // Supprimer directement la candidature (Prisma gérera la cascade)
+      // Supprimer la demande (cascade sur les documents)
       const application = await prisma.application.delete({
         where: { id }
       });
@@ -493,7 +627,7 @@ app.delete(
     } catch (error) {
       console.error('Error deleting application:', error);
       
-      // Si l'application n'existe pas
+      // Erreur Prisma P2025 = enregistrement non trouvé
       if (error.code === 'P2025') {
         return res.status(404).json({ error: 'Application not found' });
       }
@@ -506,16 +640,35 @@ app.delete(
   }
 );
 
-// Access application by code (8-character code from application ID)
+/**
+ * POST /applications/access-by-code - Accès à une demande par code unique
+ * 
+ * Permet à un élève d'accéder à son profil avec les 8 premiers caractères
+ * de l'ID de sa demande d'inscription (ex: #6485edfd)
+ * 
+ * Processus:
+ *   1. Valider le format du code (8 caractères)
+ *   2. Chercher les demandes commençant par ce code
+ *   3. Vérifier que la demande est approuvée
+ *   4. Générer un token JWT pour connexion automatique
+ * 
+ * Body:
+ *   - code: 8 premiers caractères de l'ID de demande
+ * 
+ * Retourne:
+ *   - Token JWT valide pour 24h
+ *   - Informations du profil élève
+ */
 app.post('/applications/access-by-code', async (req, res) => {
   try {
     const { code } = req.body;
     
+    // Validation du format
     if (!code || typeof code !== 'string' || code.length !== 8) {
       return res.status(400).json({ error: 'Code invalide. Le code doit contenir 8 caractères.' });
     }
 
-    // Find application starting with this code
+    // Chercher les demandes commençant par ce code
     const applications = await prisma.application.findMany({
       where: {
         id: {

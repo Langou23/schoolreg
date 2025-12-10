@@ -48,7 +48,7 @@ export default function StudentProfileLinking() {
         
         setMessage({ 
           type: 'success', 
-          text: `✅ Profil trouvé et lié avec succès ! Redirection en cours...` 
+          text: ` Profil trouvé et lié avec succès ! Redirection en cours...` 
         });
         
         // Redirection immédiate vers la page d'accueil pour afficher le profil
@@ -102,7 +102,7 @@ export default function StudentProfileLinking() {
       <form onSubmit={handleLinkByCode} className="mb-8">
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
           <p className="text-sm text-blue-800">
-            <strong>🔑 Code d'inscription requis</strong><br />
+            <strong> Code d'inscription requis</strong><br />
             Vous avez reçu un code unique lors de votre inscription (ex: <code className="bg-white px-2 py-1 rounded font-mono">#6485edfd</code>).<br />
             Ce code se trouve dans l'email de confirmation ou sur votre reçu d'inscription.
           </p>
@@ -152,7 +152,7 @@ export default function StudentProfileLinking() {
 
       {/* Info supplémentaire */}
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-        <h3 className="font-semibold text-gray-900 mb-2">❓ Vous n'avez pas votre code ?</h3>
+        <h3 className="font-semibold text-gray-900 mb-2"> !? Vous n'avez pas votre code ?</h3>
         <p className="text-sm text-gray-700">
           Contactez l'administration à l'adresse <a href="mailto:admin@schoolreg.com" className="text-blue-600 hover:underline">admin@schoolreg.com</a> avec vos informations (nom, prénom, date de naissance) pour récupérer votre code d'inscription.
         </p>

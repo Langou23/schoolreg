@@ -62,7 +62,7 @@ export default function PaymentsView() {
       });
       setFilteredPayments(filtered);
     } catch (error) {
-      console.error('❌ Erreur filtrage paiements:', error);
+      console.error(' Erreur filtrage paiements:', error);
       setFilteredPayments(payments);
     }
   }, [searchTerm, payments]);
@@ -85,14 +85,14 @@ export default function PaymentsView() {
       if (Array.isArray(data)) {
         setPayments(data as any);
         setFilteredPayments(data as any);
-        console.log('✅ Paiements chargés avec succès:', data.length);
+        console.log(' Paiements chargés avec succès:', data.length);
       } else {
-        console.warn('⚠️ Les données ne sont pas un tableau:', data);
+        console.warn(' Les données ne sont pas un tableau:', data);
         setPayments([]);
         setFilteredPayments([]);
       }
     } catch (error) {
-      console.error('❌ Erreur chargement paiements:', error);
+      console.error(' Erreur chargement paiements:', error);
       setPayments([]);
       setFilteredPayments([]);
     } finally {

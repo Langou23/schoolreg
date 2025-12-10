@@ -393,7 +393,7 @@ export default function AdminGradesManager({ onBack }: AdminGradesManagerProps) 
                   {/* Notes par bulletin (trimestres) */}
                   <div className="mb-3">
                     <label className="block text-xs font-medium text-gray-700 mb-2">
-                      📋 Notes par bulletin (trimestres)
+                       Notes par bulletin (trimestres)
                     </label>
                     <div className="grid grid-cols-3 gap-2">
                       {[

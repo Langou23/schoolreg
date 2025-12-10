@@ -43,7 +43,7 @@ export default function PhotoUpload({ studentId, currentPhoto, onSuccess, showUp
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      console.log('📤 Upload de photo pour l\'élève:', studentId);
+      console.log(' Upload de photo pour l\'élève:', studentId);
       console.log('📁 Fichier:', file.name, file.type, file.size, 'bytes');
 
       const response = await fetch(`http://localhost:4003/students/${studentId}/photo`, {
@@ -52,16 +52,16 @@ export default function PhotoUpload({ studentId, currentPhoto, onSuccess, showUp
         body: formData,
       });
 
-      console.log('📥 Réponse:', response.status, response.statusText);
+      console.log(' Réponse:', response.status, response.statusText);
 
       const result = await response.json();
-      console.log('📦 Résultat:', result);
+      console.log(' Résultat:', result);
 
       if (!response.ok) {
         throw new Error(result.detail || 'Erreur lors de l\'upload');
       }
 
-      setMessage({ type: 'success', text: '✅ Photo mise à jour avec succès !' });
+      setMessage({ type: 'success', text: ' Photo mise à jour avec succès !' });
       onSuccess(result.student.profilePhoto);
 
       // Réinitialiser le champ fichier

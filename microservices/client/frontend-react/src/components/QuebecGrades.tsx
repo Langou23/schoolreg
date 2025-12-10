@@ -69,7 +69,7 @@ export default function QuebecGrades({ enrollment }: QuebecGradesProps) {
   const level = enrollment.class?.level?.toLowerCase() || 'primaire';
   const courses = quebecCourses[level as keyof typeof quebecCourses] || quebecCourses.primaire;
 
-  // ✅ UTILISER UNIQUEMENT LES DONNÉES RÉELLES DE LA BD
+  //  UTILISER UNIQUEMENT LES DONNÉES RÉELLES DE LA BD
   const courseGrades = enrollment.courseGrades || {};
   
   console.log('📊 Notes chargées depuis la BD:', courseGrades);
@@ -80,7 +80,7 @@ export default function QuebecGrades({ enrollment }: QuebecGradesProps) {
     if (existing) {
       return { ...course, ...existing };
     }
-    // ❌ NE PAS GÉNÉRER DE DONNÉES - Retourner null si pas de note
+    //  NE PAS GÉNÉRER DE DONNÉES - Retourner null si pas de note
     return null;
   }).filter(Boolean); // Garder uniquement les cours avec notes
   

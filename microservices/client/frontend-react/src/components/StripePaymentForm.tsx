@@ -11,8 +11,8 @@ import { CreditCard, Lock, CheckCircle, AlertCircle } from 'lucide-react';
 // Initialiser Stripe avec la clé publique
 const STRIPE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || 'pk_test_51SXnUM6pFdiVF89jB6UKlOBYSQgrXy1mYQk04zqURqhTmhfhAwposPiq0OxNsc1CKoyJUK4WxBKGyDNI10AMDyfJ00FdZvzr6W';
 
-console.log('🔑 Stripe Key chargée:', STRIPE_KEY ? '✅ Oui' : '❌ Non');
-console.log('🔑 Clé:', STRIPE_KEY?.substring(0, 20) + '...');
+console.log(' Stripe Key chargée:', STRIPE_KEY ? '✅ Oui' : '❌ Non');
+console.log(' Clé:', STRIPE_KEY?.substring(0, 20) + '...');
 
 const stripePromise = loadStripe(STRIPE_KEY);
 

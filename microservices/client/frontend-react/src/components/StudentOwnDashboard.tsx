@@ -63,10 +63,10 @@ export default function StudentOwnDashboard({ user, onBack }: StudentOwnDashboar
           
           if (response.ok) {
             studentProfile = await response.json();
-            console.log('✅ Profil trouvé automatiquement:', studentProfile);
+            console.log(' Profil trouvé automatiquement:', studentProfile);
           }
         } catch (err) {
-          console.log('ℹ️ Recherche automatique échouée, passage à la recherche manuelle');
+          console.log(' Recherche automatique échouée, passage à la recherche manuelle');
         }
       }
       
@@ -77,7 +77,7 @@ export default function StudentOwnDashboard({ user, onBack }: StudentOwnDashboar
       }
 
       if (studentProfile) {
-        console.log('📊 DONNÉES CHARGÉES DEPUIS LA BASE DE DONNÉES:', {
+        console.log(' DONNÉES CHARGÉES DEPUIS LA BASE DE DONNÉES:', {
           studentId: studentProfile.id,
           nom: `${studentProfile.firstName} ${studentProfile.lastName}`,
           dateNaissance: studentProfile.dateOfBirth,
@@ -100,9 +100,9 @@ export default function StudentOwnDashboard({ user, onBack }: StudentOwnDashboar
           studentEnrollments.some((e: Enrollment) => e.classId === c.id)
         );
 
-        console.log('💰 Paiements chargés:', studentPayments.length);
-        console.log('📚 Inscriptions chargées:', studentEnrollments.length);
-        console.log('🏫 Classes chargées:', enrolledClasses.length);
+        console.log(' Paiements chargés:', studentPayments.length);
+        console.log(' Inscriptions chargées:', studentEnrollments.length);
+        console.log(' Classes chargées:', enrolledClasses.length);
 
         setPayments(studentPayments);
         setStudentEnrollments(studentEnrollments);
@@ -112,7 +112,7 @@ export default function StudentOwnDashboard({ user, onBack }: StudentOwnDashboar
         setShowLinkingInterface(true);
       }
     } catch (error: any) {
-      console.error('❌ ERREUR lors du chargement des données (StudentOwnDashboard):');
+      console.error(' ERREUR lors du chargement des données (StudentOwnDashboard):');
       console.error('Type:', error.constructor.name);
       console.error('Message:', error.message);
       console.error('Response:', error.response?.status, error.response?.data);
@@ -471,7 +471,7 @@ export default function StudentOwnDashboard({ user, onBack }: StudentOwnDashboar
 
               <div className="bg-blue-100 border border-blue-300 rounded-lg p-3">
                 <p className="text-sm text-blue-800">
-                  <strong>💡 À quoi sert ce code ?</strong>
+                  <strong> À quoi sert ce code ?</strong>
                 </p>
                 <p className="text-xs text-blue-700 mt-1">
                   Ce code vous permet d'accéder rapidement à votre profil sans avoir besoin de votre email et mot de passe. 

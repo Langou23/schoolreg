@@ -1,19 +1,44 @@
-import os
-from pathlib import Path
-from typing import Optional
-from fastapi import FastAPI, Depends, HTTPException, Body, File, UploadFile, Header
-from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import desc, func, or_, and_
-from uuid import uuid4
-from datetime import datetime
-import base64
-from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session, joinedload
-import stripe
-import jwt
+"""
+============================================
+SERVICE DE GESTION DES ÉLÈVES (students-node)
+============================================
 
+Ce service est le CŒUR de SchoolReg. Il gère:
+- 👨‍🎓 Élèves (création, modification, recherche, profils)
+- 📚 Inscriptions aux classes (enrollments)
+- 💰 Paiements et frais de scolarité
+- 🔔 Notifications aux parents
+- 📊 Statistiques du tableau de bord admin
+- 🎓 Bulletins et notes (système québécois)
+- 🔑 Codes d'accès élèves (SR2024-XXXXXX)
+
+Port par défaut: 4003
+Base de données: PostgreSQL via SQLAlchemy ORM
+============================================
+"""
+
+# ============================================
+# IMPORTATIONS DES DÉPENDANCES
+# ============================================
+
+import os                           # Variables d'environnement
+from pathlib import Path            # Manipulation chemins fichiers
+from typing import Optional         # Types optionnels Python
+from fastapi import FastAPI, Depends, HTTPException, Body, File, UploadFile, Header  # Framework web
+from sqlalchemy.orm import Session, joinedload  # ORM pour base de données
+from sqlalchemy import desc, func, or_, and_    # Requêtes SQL avancées
+from uuid import uuid4              # Génération d'IDs uniques
+from datetime import datetime       # Gestion dates et heures
+import base64                       # Encodage/décodage images
+from fastapi.middleware.cors import CORSMiddleware  # CORS pour frontend
+from dotenv import load_dotenv      # Chargement .env
+from sqlalchemy import create_engine  # Connexion base de données
+from sqlalchemy.orm import sessionmaker  # Sessions DB
+import stripe                       # API Stripe pour paiements
+import jwt                          # Tokens JWT pour authentification
+import httpx                        # Client HTTP asynchrone pour notifications
+
+# Importation des modèles de données (essai avec/sans point pour compatibilité)
 try:
     from models import Base, Student, Enrollment, Payment, Class, Notification, Gender, StudentStatus, PaymentType, PaymentStatus, EnrollmentStatus, NotificationType, NotificationStatus
     from db_maintenance import run_startup_maintenance
@@ -22,18 +47,27 @@ except ImportError:
     from .db_maintenance import run_startup_maintenance
 
 
-# Fonction pour déduire la session à partir d'une date
+# ============================================
+# FONCTIONS UTILITAIRES
+# ============================================
+
 def get_session_from_date(date: datetime) -> str:
     """
-    Déduit la session académique à partir d'une date.
-    Règles:
-    - Septembre à Décembre: Automne YYYY
-    - Janvier à Avril: Hiver YYYY
-    - Mai à Août: Été YYYY
+    🗓️ Détermine la session académique (trimestre) à partir d'une date.
+    
+    Système québécois à 3 sessions par année:
+    - Septembre à Décembre (mois 9-12) = Automne YYYY
+    - Janvier à Avril (mois 1-4) = Hiver YYYY
+    - Mai à Août (mois 5-8) = Été YYYY
+    
+    Exemple:
+        get_session_from_date(datetime(2024, 10, 15)) -> "Automne 2024"
+        get_session_from_date(datetime(2024, 2, 20)) -> "Hiver 2024"
     """
     month = date.month
     year = date.year
     
+    # Déterminer la session selon le mois
     if 9 <= month <= 12:  # Septembre à Décembre
         return f"Automne {year}"
     elif 1 <= month <= 4:  # Janvier à Avril
@@ -44,91 +78,209 @@ def get_session_from_date(date: datetime) -> str:
 
 def generate_student_code(db: Session) -> str:
     """
-    Génère un code unique pour l'élève au format: SR2024-ABC123
-    SR = SchoolReg, 2024 = année, ABC123 = code aléatoire
+    🔑 Génère un code d'accès UNIQUE pour chaque élève.
+    
+    Format: SR{ANNÉE}-{6 CARACTÈRES ALÉATOIRES}
+    Exemples:
+        - SR2024-A3F9K1
+        - SR2024-Z8Y2M5
+        - SR2025-B1C4D7
+    
+    Utilisation:
+        - Connexion élève sans mot de passe (plus simple pour les jeunes)
+        - Identification unique dans le système
+        - Facilite la communication avec les parents
+    
+    Processus:
+        1. Récupère l'année courante (ex: 2024)
+        2. Génère 6 caractères aléatoires (A-Z, 0-9)
+        3. Vérifie l'unicité dans la base de données
+        4. Recommence si le code existe déjà (très rare)
+    
+    Returns:
+        str: Code unique au format SR2024-XXXXXX
     """
     import random
     import string
     
+    # Obtenir l'année courante
     year = datetime.now().year
     
+    # Boucle jusqu'à trouver un code unique
     while True:
         # Générer 6 caractères aléatoires (lettres majuscules + chiffres)
+        # Exemple: "A3F9K1", "Z8Y2M5"
         random_part = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        
+        # Assembler le code final: "SR2024-A3F9K1"
         code = f"SR{year}-{random_part}"
         
-        # Vérifier que le code n'existe pas déjà
+        # Vérifier que le code n'existe pas déjà dans la base
         existing = db.query(Student).filter(Student.student_code == code).first()
         if not existing:
+            # Code unique trouvé!
             return code
+        # Sinon, la boucle recommence (très rare)
 
 
 def load_root_env():
+    """
+    📂 Cherche et charge le fichier .env depuis la racine du projet.
+    
+    Remonte l'arborescence des dossiers jusqu'à trouver un fichier .env.
+    Utile car le service peut être lancé depuis différents chemins.
+    
+    Returns:
+        str: Chemin du .env trouvé, ou None si aucun
+    """
+    # Obtenir le chemin absolu de ce fichier
     p = Path(__file__).resolve()
+    
+    # Parcourir tous les dossiers parents jusqu'à la racine
     for parent in [p.parent, *p.parents]:
         env = parent / ".env"
         if env.exists():
+            # Fichier .env trouvé! Le charger
             load_dotenv(env)
             return str(env)
     return None
 
 
+# Charger les variables d'environnement au démarrage
 load_root_env()
 
+# ============================================
+# CONFIGURATION DE L'APPLICATION FASTAPI
+# ============================================
+
+# Créer l'application FastAPI principale
 app = FastAPI(title="students-node")
+
+# Configurer CORS (Cross-Origin Resource Sharing)
+# Permet au frontend (localhost:5174) de faire des requêtes vers ce backend
 origins = [o.strip() for o in (os.getenv("CORS_ORIGIN") or "").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins or ["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=origins or ["*"],  # "*" = accepter toutes origines (dév uniquement)
+    allow_credentials=True,          # Autoriser cookies/auth headers
+    allow_methods=["*"],            # Autoriser GET, POST, PUT, DELETE, etc.
+    allow_headers=["*"],            # Autoriser tous les headers HTTP
 )
 
-# Database setup
+# ============================================
+# CONFIGURATION DE LA BASE DE DONNÉES
+# ============================================
+
+# URL de connexion PostgreSQL (format: postgresql://user:password@host:port/database)
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:123@localhost:5432/schoolreg")
+
+# Créer le moteur SQLAlchemy avec pool_pre_ping pour vérifier les connexions
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+
+# Fabrique de sessions DB (chaque requête aura sa propre session)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Create tables (with new JSON columns)
+# Créer toutes les tables si elles n'existent pas déjà
+# (Student, Enrollment, Payment, Class, Notification, etc.)
 Base.metadata.create_all(bind=engine)
 
-# Event de démarrage pour la maintenance
+# ============================================
+# ÉVÉNEMENT DE DÉMARRAGE
+# ============================================
+
 @app.on_event("startup")
 async def startup_event():
-    """Exécute la maintenance de la base de données au démarrage"""
+    """
+    🔧 Exécuté au démarrage du serveur.
+    
+    Effectue la maintenance automatique de la base de données:
+    - Génération des codes élèves manquants
+    - Vérification de l'intégrité des données
+    - Migrations si nécessaire
+    """
     print("🔧 Exécution de la maintenance de la base de données...")
     try:
+        # Ouvrir une session DB temporaire pour la maintenance
         db = SessionLocal()
         maintenance_result = run_startup_maintenance(db)
         print(f"✅ Maintenance terminée: {maintenance_result}")
         db.close()
     except Exception as e:
+        # Ne pas crasher le serveur si la maintenance échoue
         print(f"⚠️  Erreur lors de la maintenance: {e}")
         print("   L'application continuera de fonctionner")
         import traceback
         traceback.print_exc()
 
+# ============================================
+# CONFIGURATION DES SERVICES EXTERNES
+# ============================================
+
+# Port du service (4003 par défaut)
 PORT = int(os.getenv("STUDENTS_PORT", "4003"))
 
-# Configure Stripe
+# Clé API Stripe pour traiter les paiements en ligne
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 
-# Ajoutez ensuite :
+# Clé secrète JWT pour vérifier les tokens d'authentification
 JWT_SECRET = os.getenv("JWT_SECRET", "default-secret")
 
+# URL du service de notifications
+NOTIFICATIONS_URL = os.getenv("NOTIFICATIONS_SERVICE_URL", "http://localhost:4006")
+
+# ============================================
+# MIDDLEWARES D'AUTHENTIFICATION
+# ============================================
+
 def get_current_user(authorization: str = Header(None)):
+    """
+    🔐 Extrait et vérifie le token JWT de l'utilisateur connecté.
+    
+    Utilisé comme dépendance FastAPI pour protéger les routes.
+    
+    Args:
+        authorization: Header "Authorization: Bearer <token>"
+    
+    Returns:
+        dict: Payload du token contenant {userId, email, role}
+    
+    Raises:
+        HTTPException 401: Si token manquant ou invalide
+    """
+    # Vérifier la présence du header Authorization
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="No token provided")
+    
+    # Extraire le token (enlève "Bearer ")
     token = authorization.split(" ")[1]
+    
     try:
+        # Décoder et vérifier le token JWT
         payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        # payload contient: {userId, email, role, iat, exp}
         return payload
     except Exception:
+        # Token invalide, expiré ou malformé
         raise HTTPException(status_code=401, detail="Invalid token")
 
 def require_role(*roles):
+    """
+    🛡️ Crée un middleware qui exige un rôle spécifique.
+    
+    Usage:
+        @app.get("/admin/stats", dependencies=[Depends(require_role("admin", "direction"))])
+    
+    Args:
+        *roles: Liste des rôles autorisés (ex: "admin", "direction", "parent")
+    
+    Returns:
+        function: Dépendance FastAPI qui vérifie le rôle
+    
+    Raises:
+        HTTPException 403: Si l'utilisateur n'a pas le rôle requis
+    """
     def dependency(current_user: dict = Depends(get_current_user)):
+        # Vérifier que le rôle de l'utilisateur est dans la liste autorisée
         if current_user.get("role") not in roles:
             raise HTTPException(status_code=403, detail="Forbidden")
         return current_user
@@ -136,14 +288,93 @@ def require_role(*roles):
 
 
 def get_db():
+    """
+    💾 Générateur de session de base de données.
+    
+    Utilisé comme dépendance FastAPI pour injecter une session DB dans les routes.
+    La session est automatiquement fermée après chaque requête.
+    
+    Usage:
+        @app.get("/students")
+        def get_students(db: Session = Depends(get_db)):
+            return db.query(Student).all()
+    
+    Yields:
+        Session: Session SQLAlchemy pour faire des requêtes DB
+    """
+    # Créer une nouvelle session DB
     db = SessionLocal()
     try:
+        # Fournir la session à la route
         yield db
     finally:
+        # Toujours fermer la session (même en cas d'erreur)
         db.close()
 
 
+# ============================================
+# FONCTION D'ENVOI DE NOTIFICATIONS
+# ============================================
+
+async def send_notification(user_id: str, notification_type: str, title: str, message: str):
+    """
+    🔔 Envoie une notification au service notifications-node.
+    
+    Appelée automatiquement lors d'événements importants:
+    - Changement de frais de scolarité
+    - Modification du profil élève
+    - Changement de notes
+    - Paiement effectué
+    - Inscription à une classe
+    
+    Args:
+        user_id: ID de l'utilisateur destinataire (parent ou élève)
+        notification_type: Type de notification ('payment_reminder', 'enrollment_update', etc.)
+        title: Titre court de la notification
+        message: Message détaillé
+    
+    Returns:
+        bool: True si succès, False sinon (n'interrompt pas le flux principal)
+    """
+    try:
+        # Préparer les données de notification
+        notification_data = {
+            "userId": user_id,
+            "type": notification_type,
+            "title": title,
+            "message": message
+        }
+        
+        # Envoyer au service notifications (endpoint /system sans auth requise)
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(
+                f"{NOTIFICATIONS_URL}/system",
+                json=notification_data
+            )
+            
+            if response.status_code in [200, 201]:
+                print(f"✅ Notification envoyée à {user_id}: {title}")
+                return True
+            else:
+                print(f"⚠️ Échec notification (HTTP {response.status_code}): {title}")
+                return False
+                
+    except Exception as e:
+        # Ne pas bloquer le flux principal si l'envoi de notification échoue
+        print(f"❌ Erreur envoi notification: {e}")
+        return False
+
+
+# ============================================
+# FONCTIONS DE SÉRIALISATION
+# ============================================
+# Convertissent les modèles SQLAlchemy en dictionnaires JSON
+
 def serialize_class(c: Class) -> dict:
+    """
+    Sérialise une classe pour l'API
+    Convertit les dates en format ISO 8601
+    """
     return {
         "id": c.id,
         "name": c.name,
@@ -160,6 +391,18 @@ def serialize_class(c: Class) -> dict:
 
 
 def serialize_enrollment(e: Enrollment, include_class: bool = True, include_student: bool = True) -> dict:
+    """
+    Sérialise une inscription élève-classe pour l'API
+    
+    Inclut les données du système québécois:
+    - Notes par matière (courseGrades)
+    - Bulletins trimestriels (quebecReportCard)
+    - Évaluation des compétences (competenciesAssessment)
+    
+    Params:
+        include_class: Inclure les détails de la classe
+        include_student: Inclure les détails de l'élève
+    """
     result = {
         "id": e.id,
         "studentId": e.student_id,
@@ -170,9 +413,9 @@ def serialize_enrollment(e: Enrollment, include_class: bool = True, include_stud
         "attendance": e.attendance,
         
         # NOUVEAUX CHAMPS SYSTÈME QUÉBÉCOIS
-        "courseGrades": e.course_grades,
-        "quebecReportCard": e.quebec_report_card,
-        "competenciesAssessment": e.competencies_assessment,
+        "courseGrades": e.course_grades,  # Notes par matière (Math, Français, etc.)
+        "quebecReportCard": e.quebec_report_card,  # Bulletins trimestriels
+        "competenciesAssessment": e.competencies_assessment,  # Compétences
         "academicYear": e.academic_year,
         "semester": e.semester,
         
@@ -187,6 +430,17 @@ def serialize_enrollment(e: Enrollment, include_class: bool = True, include_stud
 
 
 def serialize_payment(p: Payment, include_student: bool = False) -> dict:
+    """
+    Sérialise un paiement pour l'API
+    
+    Champs importants:
+    - paymentType: tuition (scolarité), transport, registration, other
+    - status: paid, pending, cancelled, refunded
+    - paymentMethod: cash, card, bank_transfer, mobile_money, stripe
+    
+    Params:
+        include_student: Inclure les détails de l'élève
+    """
     result = {
         "id": p.id,
         "studentId": p.student_id,
@@ -198,7 +452,7 @@ def serialize_payment(p: Payment, include_student: bool = False) -> dict:
         "notes": p.notes,
         "paymentDate": p.payment_date.isoformat() if p.payment_date else None,
         "dueDate": p.due_date.isoformat() if p.due_date else None,
-        "academicYear": p.academic_year,  # Ajouter l'année académique
+        "academicYear": p.academic_year,
         "userId": p.user_id,
         "createdAt": p.created_at.isoformat() if p.created_at else None,
         "updatedAt": p.updated_at.isoformat() if p.updated_at else None,
@@ -209,6 +463,17 @@ def serialize_payment(p: Payment, include_student: bool = False) -> dict:
 
 
 def serialize_student(s: Student, include_relations: bool = True) -> dict:
+    """
+    Sérialise un profil élève pour l'API
+    
+    Calcule automatiquement:
+    - Soldes par type de frais (scolarité, transport, inscription)
+    - Total payé vs total en attente
+    - Solde restant (tuitionBalance)
+    
+    Params:
+        include_relations: Inclure enrollments, payments, documents
+    """
     # Calculer les montants par type de frais à partir des paiements
     payments_by_type = {}
     total_pending = 0.0
@@ -220,6 +485,7 @@ def serialize_student(s: Student, include_relations: bool = True) -> dict:
             if ptype not in payments_by_type:
                 payments_by_type[ptype] = {'pending': 0.0, 'paid': 0.0}
             
+            # Additionner les montants selon le statut
             if payment.status == PaymentStatus.paid:
                 payments_by_type[ptype]['paid'] += payment.amount
                 total_paid += payment.amount
@@ -277,6 +543,14 @@ def serialize_student(s: Student, include_relations: bool = True) -> dict:
 
 
 def serialize_notification(n: Notification, include_student: bool = False, include_payment: bool = False) -> dict:
+    """
+    Sérialise une notification pour l'API
+    
+    Champs spéciaux:
+    - readAt: Date de lecture (null si non lue)
+    - emailSent: Email envoyé au parent/élève
+    - priority: Niveau de priorité (low, normal, high, urgent)
+    """
     result = {
         "id": n.id,
         "userId": n.user_id,
@@ -340,10 +614,11 @@ async def list_students(
 
         students = query.order_by(Student.created_at.desc()).all()
 
-        # 🔎 Filtrer les élèves sans classe active si demandé
+        # Filtrer les élèves sans classe active si demandé
         if withoutActiveClass:
             students_without_class = []
             for student in students:
+                # Vérifier si l'élève a au moins une inscription active
                 has_active_enrollment = any(
                     enrollment.status == EnrollmentStatus.active
                     for enrollment in student.enrollments
@@ -353,7 +628,7 @@ async def list_students(
 
             students = students_without_class
 
-        # Retour des données sérialisées
+        # Retourner les données sérialisées avec toutes les relations
         return [serialize_student(s, include_relations=True) for s in students]
 
     except Exception as e:
@@ -367,13 +642,28 @@ async def get_student(
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user)
 ):
+    """
+    GET /students/{student_id} - Récupère un élève par son ID
+    
+    Authentification: JWT requis
+    
+    Retourne:
+        - Profil complet de l'élève
+        - Classes inscrites (enrollments)
+        - Historique des paiements
+        - Solde restant calculé automatiquement
+    
+    Erreur 404 si l'élève n'existe pas
+    """
     try:
         student = db.query(Student).options(
             joinedload(Student.enrollments).joinedload(Enrollment.class_),
             joinedload(Student.payments)
         ).filter(Student.id == student_id).first()
+        
         if not student:
             raise HTTPException(status_code=404, detail="Student not found")
+            
         return serialize_student(student, include_relations=True)
     except HTTPException:
         raise
@@ -381,30 +671,52 @@ async def get_student(
         raise HTTPException(status_code=500, detail=f"Failed to fetch student: {str(e)}")
 
 
+# ============================================
+# ENDPOINTS API - INSCRIPTIONS (ENROLLMENTS)
+# ============================================
+
 @app.get("/enrollments")
 async def list_enrollments(
     classId: Optional[str] = None,
     studentId: Optional[str] = None,
-    status: Optional[str] = "active",  # Par défaut, on retourne uniquement les inscriptions actives
-    includeAll: Optional[bool] = False,  # Pour récupérer toutes les inscriptions si nécessaire
+    status: Optional[str] = "active",
+    includeAll: Optional[bool] = False,
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user)
 ):
+    """
+    GET /enrollments - Liste les inscriptions élèves-classes
+    
+    Authentification: JWT requis
+    
+    Query params:
+        - classId: Filtrer par ID de classe
+        - studentId: Filtrer par ID d'élève
+        - status: Filtrer par statut (active par défaut)
+        - includeAll: Si True, ignore le filtre de statut
+    
+    Retourne: Inscriptions avec détails de la classe et de l'élève
+    
+    Utilisé pour:
+        - Afficher les élèves d'une classe
+        - Voir les classes d'un élève
+        - Gérer les notes et présences
+    """
     try:
         query = db.query(Enrollment).options(
             joinedload(Enrollment.student),
             joinedload(Enrollment.class_)
         )
         
-        # Filter by classId if provided
+        # Filtrer par classe si fourni
         if classId:
             query = query.filter(Enrollment.class_id == classId)
         
-        # Filter by studentId if provided
+        # Filtrer par élève si fourni
         if studentId:
             query = query.filter(Enrollment.student_id == studentId)
         
-        # Filter by status (par défaut 'active', sauf si includeAll=True)
+        # Filtrer par statut (par défaut 'active', sauf si includeAll=True)
         if not includeAll and status:
             try:
                 from models import EnrollmentStatus as _ES
@@ -418,12 +730,32 @@ async def list_enrollments(
         raise HTTPException(status_code=500, detail=f"Failed to fetch enrollments: {str(e)}")
 
 
+# ============================================
+# ENDPOINTS API - PAIEMENTS
+# ============================================
+
 @app.get("/payments")
 async def list_payments(
     studentId: Optional[str] = None,
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user)
 ):
+    """
+    GET /payments - Liste tous les paiements
+    
+    Authentification: JWT requis
+    
+    Query params:
+        - studentId: Filtrer par ID d'élève (optionnel)
+    
+    Retourne: Historique des paiements avec statut et détails
+    
+    Types de paiements:
+        - tuition: Frais de scolarité
+        - transport: Frais de transport
+        - registration: Frais d'inscription
+        - other: Autres frais
+    """
     try:
         query = db.query(Payment).options(joinedload(Payment.student))
         if studentId:
@@ -436,6 +768,33 @@ async def list_payments(
 
 @app.post("/students")
 async def create_student(payload: dict = Body(...), db: Session = Depends(get_db), user: dict = Depends(require_role("admin","direction","system"))):
+    """
+    POST /students - Crée un nouveau profil élève
+    
+    Authentification: JWT requis
+    Rôles autorisés: admin, direction, system
+    
+    Body (requis):
+        - firstName, lastName: Nom complet
+        - dateOfBirth: Date de naissance (ISO 8601)
+        - gender: Genre
+        - address: Adresse complète
+        - parentName, parentPhone, parentEmail: Contact parent
+        - program: Programme scolaire
+        - session: Session d'inscription
+        - secondaryLevel: Niveau secondaire
+        - tuitionAmount: Montant des frais
+    
+    Body (optionnel):
+        - emergencyContact, medicalInfo: Infos médicales
+        - academicHistory: Historique académique
+        - userId, applicationId: Liens avec comptes/demandes
+    
+    Automatique:
+        - studentCode: Code unique généré (8 caractères)
+        - tuitionPaid: Initialisé à 0
+        - status: pending par défaut
+    """
     try:
         required = ['firstName', 'lastName', 'dateOfBirth', 'gender', 'address', 'parentName', 'parentPhone', 'program', 'session', 'secondaryLevel', 'tuitionAmount']
         for field in required:
@@ -492,18 +851,39 @@ async def create_student(payload: dict = Body(...), db: Session = Depends(get_db
 
 @app.put("/students/{student_id}")
 async def update_student(student_id: str, payload: dict = Body(...), db: Session = Depends(get_db), user: dict = Depends(require_role("admin","direction","system"))):
+    """
+    PUT /students/{student_id} - Met à jour un profil élève
+    
+    Authentification: JWT requis
+    Rôles autorisés: admin, direction, system
+    
+    Champs modifiables:
+        - Infos personnelles: firstName, lastName, address
+        - Contact: parentName, parentPhone, parentEmail
+        - Académique: status, program, session, secondaryLevel
+        - Financier: tuitionAmount (crée paiement pending si augmentation)
+        - Profil: emergencyContact, medicalInfo, academicHistory, profilePhoto
+    
+    Protection:
+        - tuitionPaid NON modifiable (géré uniquement par les paiements)
+        - studentCode NON modifiable (identifiant unique)
+    
+    Notifications automatiques:
+        - Si tuitionAmount augmente: Notification au parent + paiement pending
+        - Si changements importants: Notification admin
+    """
     try:
         student = db.query(Student).filter(Student.id == student_id).first()
         if not student:
             raise HTTPException(status_code=404, detail="Student not found")
         
-        # Garder les anciennes valeurs pour comparaison
+        # Garder les anciennes valeurs pour comparaison et notifications
         old_values = {
             'status': student.status.value if student.status else None,
             'tuitionPaid': student.tuition_paid,
-            'tuitionAmount': student.tuition_amount  # Nécessaire pour calculer le solde correctement
+            'tuitionAmount': student.tuition_amount
         }
-        # Conserver le montant payé avant toute modification (protection)
+        # Protéger le montant payé (ne peut être modifié que via paiements)
         original_paid = student.tuition_paid or 0.0
         
         allowed_fields = {'firstName': 'first_name', 'lastName': 'last_name', 'address': 'address', 
@@ -519,7 +899,7 @@ async def update_student(student_id: str, payload: dict = Body(...), db: Session
         # Champs JSON nécessitant une gestion spéciale
         json_fields = {'emergencyContact', 'medicalInfo', 'academicHistory', 'preferences'}
 
-        # Ne jamais permettre la modification directe de tuitionPaid via update_student
+        # PROTECTION: tuitionPaid ne peut être modifié que via l'endpoint /payments
         if 'tuitionPaid' in payload:
             payload.pop('tuitionPaid', None)
         
@@ -562,22 +942,24 @@ async def update_student(student_id: str, payload: dict = Body(...), db: Session
                 print(f"Erreur conversion profileCompletionDate: {e}")
         
         student.updated_at = datetime.utcnow()
-        # Forcer la conservation du montant payé (aucune mise à jour directe via cet endpoint)
+        # PROTECTION: Restaurer le montant payé original
         student.tuition_paid = original_paid
         
-        # Si tuitionAmount a augmenté, créer un paiement pending pour le solde
+        # GESTION AUTOMATIQUE DES FRAIS DE SCOLARITÉ
+        # Si augmentation des frais: créer paiement pending + notifier parent
         tuition_changed = False
         if 'tuitionAmount' in payload:
             new_tuition = float(payload['tuitionAmount'])
             old_tuition = old_values.get('tuitionAmount', 0) or 0
             current_paid = student.tuition_paid or 0
             
-            # Si le nouveau montant est supérieur à l'ancien ET qu'il reste un solde
+            # Vérifier si les frais ont augmenté
             if new_tuition > old_tuition:
                 tuition_changed = True
                 new_balance = new_tuition - current_paid
+                
                 if new_balance > 0:
-                    # Créer un paiement pending pour le solde
+                    # Créer un paiement en attente pour le solde
                     from uuid import uuid4
                     pending_payment = Payment(
                         id=str(uuid4()),
@@ -589,14 +971,14 @@ async def update_student(student_id: str, payload: dict = Body(...), db: Session
                         notes=f'Solde restant après augmentation des frais de {old_tuition} à {new_tuition} $ CAD',
                         payment_date=datetime.utcnow(),
                         due_date=student.registration_deadline if student.registration_deadline else None,
-                        academic_year=student.session,  # Utiliser la session de l'étudiant
+                        academic_year=student.session,
                         created_at=datetime.utcnow(),
                         updated_at=datetime.utcnow()
                     )
                     db.add(pending_payment)
                     changes.append(f"Paiement pending créé: {new_balance} $ CAD pour session {student.session}")
                     
-                    # Créer une notification pour le parent
+                    # NOTIFICATION AUTOMATIQUE au parent
                     try:
                         import httpx
                         notification_payload = {
@@ -651,17 +1033,6 @@ async def update_student(student_id: str, payload: dict = Body(...), db: Session
     except HTTPException:
         raise
     except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to update student: {str(e)}")
-
-
-@app.delete("/students/{student_id}")
-async def delete_student(student_id: str, db: Session = Depends(get_db), user: dict = Depends(require_role("admin","direction","system"))):
-    try:
-        student = db.query(Student).filter(Student.id == student_id).first()
-        if not student:
-            raise HTTPException(status_code=404, detail="Student not found")
-        db.delete(student)
         db.commit()
         return {"message": "Student deleted successfully"}
     except HTTPException:
@@ -673,6 +1044,29 @@ async def delete_student(student_id: str, db: Session = Depends(get_db), user: d
 
 @app.post("/enrollments")
 async def create_enrollment(payload: dict = Body(...), db: Session = Depends(get_db), user: dict = Depends(require_role("admin","direction","system"))):
+    """
+    POST /enrollments - Inscrit un élève à une classe
+    
+    Authentification: JWT requis
+    Rôles autorisés: admin, direction, system
+    
+    Body (requis):
+        - studentId: ID de l'élève
+        - classId: ID de la classe
+    
+    Body (optionnel):
+        - status: Statut (active par défaut)
+        - grade: Note initiale
+        - attendance: Présence initiale (0.0 par défaut)
+    
+    Validation:
+        - Un élève ne peut être inscrit que dans UNE classe active à la fois
+        - Erreur 400 si l'élève est déjà inscrit ailleurs
+    
+    Utilisé pour:
+        - Assigner un élève à sa classe après approbation
+        - Changer un élève de classe (désinscrire puis réinscrire)
+    """
     try:
         if 'studentId' not in payload or 'classId' not in payload:
             raise HTTPException(status_code=400, detail="Missing studentId or classId")
@@ -680,7 +1074,7 @@ async def create_enrollment(payload: dict = Body(...), db: Session = Depends(get
         student_id = payload['studentId']
         class_id = payload['classId']
         
-        # VALIDATION: Vérifier si l'élève est déjà inscrit dans une classe active
+        # VALIDATION: Vérifier que l'élève n'est pas déjà inscrit dans une classe active
         try:
             from models import EnrollmentStatus as _ES
         except Exception:
@@ -692,7 +1086,7 @@ async def create_enrollment(payload: dict = Body(...), db: Session = Depends(get
         ).first()
         
         if existing_enrollment:
-            # Récupérer les informations de la classe existante
+            # Récupérer le nom de la classe existante pour un message clair
             existing_class = db.query(Class).filter(Class.id == existing_enrollment.class_id).first()
             class_name = existing_class.name if existing_class else "une classe"
             
@@ -727,17 +1121,29 @@ async def create_enrollment(payload: dict = Body(...), db: Session = Depends(get
 
 @app.put("/enrollments/{enrollment_id}")
 async def update_enrollment(enrollment_id: str, payload: dict = Body(...), db: Session = Depends(get_db), user: dict = Depends(require_role("admin","direction","system"))):
+    """
+    📝 Met à jour une inscription d'élève à une classe.
+    
+    Envoie des notifications automatiques pour:
+    - Changement de notes (grade)
+    - Changement de statut d'inscription
+    - Modifications importantes
+    """
     print(f"📝 Requête de mise à jour d'inscription reçue")
     print(f"   ID inscription: {enrollment_id}")
     print(f"   Payload: {payload}")
     
     try:
-        enrollment = db.query(Enrollment).filter(Enrollment.id == enrollment_id).first()
+        enrollment = db.query(Enrollment).options(joinedload(Enrollment.student)).filter(Enrollment.id == enrollment_id).first()
         if not enrollment:
             print(f"❌ Inscription non trouvée: {enrollment_id}")
             raise HTTPException(status_code=404, detail="Enrollment not found")
         
         print(f"✅ Inscription trouvée - Statut actuel: {enrollment.status}")
+        
+        # Tracker les changements pour les notifications
+        changes = []
+        old_grade = enrollment.grade
         
         # Mettre à jour les champs fournis
         if 'status' in payload:
@@ -751,14 +1157,20 @@ async def update_enrollment(enrollment_id: str, payload: dict = Body(...), db: S
             print(f"🔄 Changement de statut: {old_status} → {new_status}")
             
             enrollment.status = _ES(new_status) if new_status else enrollment.status
+            changes.append(f"Statut: {old_status} → {new_status}")
         
         if 'grade' in payload:
-            enrollment.grade = payload.get('grade')
+            new_grade = payload.get('grade')
+            enrollment.grade = new_grade
             print(f"📊 Mise à jour de la note: {enrollment.grade}")
+            
+            if old_grade != new_grade:
+                changes.append(f"Note: {old_grade or 'N/A'} → {new_grade or 'N/A'}")
         
         if 'attendance' in payload:
             enrollment.attendance = payload.get('attendance')
             print(f"📅 Mise à jour de la présence: {enrollment.attendance}")
+            changes.append(f"Présence mise à jour")
         
         enrollment.updated_at = datetime.utcnow()
         
@@ -767,6 +1179,43 @@ async def update_enrollment(enrollment_id: str, payload: dict = Body(...), db: S
         db.refresh(enrollment)
         
         print(f"✅ Inscription mise à jour avec succès - Nouveau statut: {enrollment.status}")
+        
+        # 🔔 ENVOYER NOTIFICATION SI CHANGEMENT DE NOTE
+        if old_grade != enrollment.grade and enrollment.student:
+            student = enrollment.student
+            class_info = enrollment.class_
+            
+            # Notification pour l'élève
+            if student.user_id:
+                try:
+                    await send_notification(
+                        user_id=student.user_id,
+                        notification_type="enrollment_update",
+                        title="📊 Nouvelle note disponible",
+                        message=f"Votre note pour {class_info.name if class_info else 'le cours'} a été mise à jour: {enrollment.grade or 'N/A'}"
+                    )
+                except Exception as e:
+                    print(f"⚠️ Erreur notification élève: {e}")
+            
+            # Notification pour le parent (via email parent)
+            if student.parent_email:
+                # Chercher le compte parent
+                from sqlalchemy import text
+                parent_user = db.execute(
+                    text("SELECT id FROM \"User\" WHERE email = :email AND role = 'parent'"),
+                    {"email": student.parent_email}
+                ).fetchone()
+                
+                if parent_user:
+                    try:
+                        await send_notification(
+                            user_id=parent_user[0],
+                            notification_type="enrollment_update",
+                            title=f"📊 Note de {student.first_name}",
+                            message=f"La note de {student.first_name} {student.last_name} pour {class_info.name if class_info else 'le cours'} a été mise à jour: {enrollment.grade or 'N/A'}"
+                        )
+                    except Exception as e:
+                        print(f"⚠️ Erreur notification parent: {e}")
         
         return serialize_enrollment(enrollment, include_class=True)
     except HTTPException:
@@ -781,6 +1230,30 @@ async def update_enrollment(enrollment_id: str, payload: dict = Body(...), db: S
 
 @app.post("/payments")
 async def create_payment(payload: dict = Body(...), db: Session = Depends(get_db), user: dict = Depends(require_role("admin","direction","system"))):
+    """
+    POST /payments - Crée un nouveau paiement
+    
+    Authentification: JWT requis
+    Rôles autorisés: admin, direction, system
+    
+    Body (requis):
+        - studentId: ID de l'élève
+        - amount: Montant du paiement
+        - paymentType: Type (tuition, transport, registration, other)
+        - paymentMethod: Méthode (cash, card, bank_transfer, mobile_money, stripe)
+    
+    Body (optionnel):
+        - status: Statut (pending par défaut, paid, cancelled, refunded)
+        - transactionId: ID de transaction (pour paiements en ligne)
+        - notes: Notes supplémentaires
+        - dueDate: Date limite
+        - userId: ID utilisateur ayant effectué le paiement
+    
+    Automatique:
+        - academicYear: Session déduite de la date de paiement
+        - tuitionPaid: Mis à jour automatiquement si type=tuition et status=paid
+        - Notification envoyée à l'admin
+    """
     try:
         required = ['studentId', 'amount', 'paymentType', 'paymentMethod']
         for field in required:
@@ -808,7 +1281,8 @@ async def create_payment(payload: dict = Body(...), db: Session = Depends(get_db
         payment = Payment(**payment_data)
         db.add(payment)
         
-        # Mettre à jour tuition_paid si c'est un paiement de scolarité
+        # MISE À JOUR AUTOMATIQUE DU SOLDE
+        # Si paiement de scolarité et statut=paid: incrémenter tuition_paid
         if payload['paymentType'] == 'tuition' and payload.get('status') == 'paid':
             student = db.query(Student).filter(Student.id == payload['studentId']).first()
             if student:
@@ -818,7 +1292,7 @@ async def create_payment(payload: dict = Body(...), db: Session = Depends(get_db
         db.commit()
         db.refresh(payment)
         
-        # Envoyer notification
+        # NOTIFICATION ADMIN pour suivi des paiements
         try:
             import httpx
             student = db.query(Student).filter(Student.id == payload['studentId']).first()
@@ -870,7 +1344,26 @@ async def create_payment(payload: dict = Body(...), db: Session = Depends(get_db
 @app.put("/payments/{payment_id}")
 async def update_payment(payment_id: str, payload: dict = Body(...), db: Session = Depends(get_db), user: dict = Depends(require_role("admin","direction","system"))):
     """
-    Mettre à jour un paiement existant
+    PUT /payments/{payment_id} - Met à jour un paiement existant
+    
+    Authentification: JWT requis
+    Rôles autorisés: admin, direction, system
+    
+    Champs modifiables:
+        - amount: Montant
+        - paymentType, paymentMethod: Type et méthode
+        - status: Statut (pending, paid, cancelled, refunded)
+        - transactionId, notes: Infos complémentaires
+        - paymentDate, dueDate: Dates
+    
+    Gestion automatique du solde:
+        - Si passage pending→paid: Ajoute le montant à tuitionPaid
+        - Si passage paid→cancelled: Retire le montant de tuitionPaid
+        - Si changement de montant sur un paiement paid: Ajuste tuitionPaid
+    
+    Protection:
+        - Recalcul correct du solde selon l'ancien et le nouveau statut
+        - Prévient les incohérences de données
     """
     try:
         # Récupérer le paiement existant
@@ -878,7 +1371,7 @@ async def update_payment(payment_id: str, payload: dict = Body(...), db: Session
         if not payment:
             raise HTTPException(status_code=404, detail="Payment not found")
         
-        # Sauvegarder l'ancien montant et statut pour ajuster tuition_paid si nécessaire
+        # Sauvegarder anciennes valeurs pour recalcul du solde
         old_amount = payment.amount
         old_status = payment.status
         
@@ -911,15 +1404,15 @@ async def update_payment(payment_id: str, payload: dict = Body(...), db: Session
             # Si academic_year est vide, le calculer maintenant
             payment.academic_year = get_session_from_date(payment.payment_date)
         
-        # Ajuster tuition_paid si le montant ou le statut a changé et que c'est un paiement de scolarité
+        # RECALCUL AUTOMATIQUE DU SOLDE pour paiements de scolarité
         if payment.payment_type == 'tuition':
             student = db.query(Student).filter(Student.id == payment.student_id).first()
             if student:
-                # Retirer l'ancien montant si c'était payé
+                # Étape 1: Retirer l'ancien montant si c'était déjà payé
                 if old_status == PaymentStatus.paid:
                     student.tuition_paid = (student.tuition_paid or 0) - old_amount
                 
-                # Ajouter le nouveau montant si c'est payé
+                # Étape 2: Ajouter le nouveau montant si le paiement est maintenant payé
                 if payment.status == PaymentStatus.paid:
                     student.tuition_paid = (student.tuition_paid or 0) + payment.amount
                 
@@ -939,24 +1432,42 @@ async def update_payment(payment_id: str, payload: dict = Body(...), db: Session
 @app.delete("/payments/{payment_id}")
 async def delete_payment(payment_id: str, db: Session = Depends(get_db), user: dict = Depends(require_role("admin","direction"))):
     """
-    Supprimer un paiement existant et ajuster le tuition_paid si nécessaire
+    DELETE /payments/{payment_id} - Supprime un paiement
+    
+    Authentification: JWT requis
+    Rôles autorisés: admin, direction
+    
+    Attention: Action irréversible
+    
+    Gestion automatique du solde:
+        - Si le paiement était de type tuition et statut=paid:
+          Le montant est automatiquement SOUSTRAIT de tuitionPaid
+        - Utilise max(0, ...) pour éviter les soldes négatifs
+    
+    Utilisé pour:
+        - Corriger les erreurs de saisie
+        - Annuler les paiements en double
+        - Nettoyer les paiements de test
+    
+    Erreur 404 si le paiement n'existe pas
     """
     try:
-        # Récupérer le paiement
+        # Récupérer le paiement à supprimer
         payment = db.query(Payment).filter(Payment.id == payment_id).first()
         if not payment:
             raise HTTPException(status_code=404, detail="Payment not found")
         
-        # Si c'est un paiement de scolarité qui était payé, ajuster tuition_paid
+        # AJUSTEMENT AUTOMATIQUE DU SOLDE
+        # Si paiement de scolarité payé: retirer le montant de tuitionPaid
         if payment.payment_type == 'tuition' and payment.status == PaymentStatus.paid:
             student = db.query(Student).filter(Student.id == payment.student_id).first()
             if student:
-                # Soustraire le montant du paiement du total payé
+                # Soustraire le montant (max évite les négatifs)
                 student.tuition_paid = max(0, (student.tuition_paid or 0) - payment.amount)
                 student.updated_at = datetime.utcnow()
                 print(f"✅ Ajustement tuition_paid pour élève {student.id}: -{payment.amount} $ CAD")
         
-        # Supprimer le paiement
+        # Supprimer le paiement de la base de données
         db.delete(payment)
         db.commit()
         
@@ -971,7 +1482,32 @@ async def delete_payment(payment_id: str, db: Session = Depends(get_db), user: d
 @app.post("/payments/create-payment-intent")
 async def create_payment_intent(payload: dict = Body(...), db: Session = Depends(get_db)):
     """
-    Créer un Payment Intent Stripe pour un paiement
+    POST /payments/create-payment-intent - Crée un Payment Intent Stripe
+    
+    Authentification: NON requis (endpoint public pour formulaire paiement)
+    
+    Body (requis):
+        - amount: Montant en CENTIMES (ex: 5000 = 50.00 $)
+        - currency: Devise (ex: "cad", "usd")
+        - studentId: ID de l'élève
+        - paymentType: Type de paiement (tuition, transport, etc.)
+    
+    Body (optionnel):
+        - userId: ID de l'utilisateur effectuant le paiement
+        - metadata: Métadonnées supplémentaires
+    
+    Processus:
+        1. Valider l'existence de l'élève
+        2. Créer un Payment Intent Stripe
+        3. Créer un enregistrement paiement avec status=pending
+        4. Retourner client_secret pour le frontend
+    
+    Le paiement sera confirmé via webhook Stripe une fois complété
+    
+    Retourne:
+        - clientSecret: Clé pour compléter le paiement côté client
+        - paymentIntentId: ID Stripe du Payment Intent
+        - paymentId: ID de notre enregistrement local
     """
     try:
         required = ['amount', 'currency', 'studentId', 'paymentType']
@@ -984,7 +1520,7 @@ async def create_payment_intent(payload: dict = Body(...), db: Session = Depends
         if not student:
             raise HTTPException(status_code=404, detail="Student not found")
         
-        # Créer le Payment Intent avec Stripe
+        # Créer le Payment Intent avec Stripe API
         payment_intent = stripe.PaymentIntent.create(
             amount=int(payload['amount']),  # Montant en centimes
             currency=payload['currency'].lower(),
@@ -996,20 +1532,21 @@ async def create_payment_intent(payload: dict = Body(...), db: Session = Depends
             description=f"Paiement {payload['paymentType']} pour {student.first_name} {student.last_name}",
         )
         
-        # Créer un enregistrement de paiement en attente dans la DB
+        # Créer un enregistrement local en statut pending
+        # Sera mis à jour en 'paid' par le webhook Stripe après confirmation
         payment_date = datetime.utcnow()
         payment_data = {
             'id': str(uuid4()),
             'student_id': payload['studentId'],
-            'amount': float(payload['amount']) / 100,  # Convertir de centimes en unité
+            'amount': float(payload['amount']) / 100,  # Convertir centimes → dollars
             'payment_type': payload['paymentType'],
             'payment_method': 'card',
-            'status': 'pending',
-            'transaction_id': payment_intent.id,
+            'status': 'pending',  # Sera 'paid' après webhook
+            'transaction_id': payment_intent.id,  # ID Stripe pour tracking
             'payment_date': payment_date,
-            'academic_year': get_session_from_date(payment_date),  # Déduire la session automatiquement
+            'academic_year': get_session_from_date(payment_date),
             'notes': f"Stripe Payment Intent: {payment_intent.id}",
-            'user_id': payload.get('userId'),  # ID utilisateur si fourni
+            'user_id': payload.get('userId'),
             'created_at': datetime.utcnow(),
             'updated_at': datetime.utcnow()
         }

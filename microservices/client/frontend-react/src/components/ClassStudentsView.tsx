@@ -21,10 +21,10 @@ export default function ClassStudentsView({ classId, className, onClose }: Class
       console.log('🔄 Chargement des inscriptions pour la classe:', classId);
       // Filtrer uniquement les inscriptions actives
       const data = await EnrollmentsApi.listByClass(classId, 'active');
-      console.log('✅ Inscriptions reçues:', data);
+      console.log(' Inscriptions reçues:', data);
       setEnrollments(Array.isArray(data) ? data : []);
     } catch (error) {
-      console.error('❌ Erreur lors du chargement des inscriptions:', error);
+      console.error(' Erreur lors du chargement des inscriptions:', error);
       setEnrollments([]);
     } finally {
       setLoading(false);
@@ -71,24 +71,24 @@ export default function ClassStudentsView({ classId, className, onClose }: Class
   };
 
   const handleUnenroll = async (enrollmentId: string, studentName: string) => {
-    console.log('🔄 Tentative de désinscription:', { enrollmentId, studentName });
+    console.log(' Tentative de désinscription ! ', { enrollmentId, studentName });
     
     if (!confirm(`Êtes-vous sûr de vouloir désinscrire ${studentName} de cette classe ?`)) {
-      console.log('❌ Désinscription annulée par l\'utilisateur');
+      console.log(' Désinscription annulée par l\'utilisateur');
       return;
     }
 
     try {
-      console.log('📤 Envoi de la requête de mise à jour...');
+      console.log(' Envoi de la requête de mise à jour...');
       const response = await EnrollmentsApi.update(enrollmentId, { status: 'dropped' });
-      console.log('✅ Réponse reçue:', response);
+      console.log(' Réponse reçue:', response);
       
       // Rafraîchir la liste
       console.log('🔄 Rafraîchissement de la liste...');
       await fetchEnrollments();
-      console.log('✅ Désinscription réussie');
+      console.log(' Désinscription réussie');
     } catch (error: any) {
-      console.error('❌ Erreur lors de la désinscription:', error);
+      console.error(' Erreur lors de la désinscription:', error);
       console.error('Détails:', error.response?.data || error.message);
       alert(`Erreur lors de la désinscription de l'élève: ${error.response?.data?.detail || error.message}`);
     }

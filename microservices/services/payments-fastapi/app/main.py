@@ -1,3 +1,31 @@
+"""
+============================================
+SERVICE DE PAIEMENTS STRIPE (payments-fastapi)
+============================================
+Port: 4004 | Python + FastAPI + Stripe API
+
+Responsabilités:
+- Intégration Stripe (Payment Intents, Checkout Sessions)
+- Mode simulation pour développement sans vraie clé Stripe
+- Webhooks Stripe pour confirmations automatiques
+- Synchronisation avec students-node pour MAJ tuitionPaid
+- Gestion des paiements par carte bancaire
+
+Modes de paiement:
+1. Payment Intent: Intégration Stripe Elements dans le frontend
+2. Checkout Session: Page de paiement hébergée par Stripe
+
+Synchronisation:
+- Création paiement dans students-node (status=pending)
+- Webhook Stripe -> MAJ status=paid + incrément tuitionPaid
+
+Mode simulation:
+- STRIPE_SIMULATION_MODE=true: Fonctionne sans clé Stripe réelle
+- Génère des IDs simulés (pi_simulated_xxx, cs_test_simulated_xxx)
+- Parfait pour le développement local
+============================================
+"""
+
 from fastapi import FastAPI, Depends, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -21,11 +49,15 @@ from .schemas import (
     PaymentStatusUpdate
 )
 
-# Charger les variables d'environnement
+# ============================================
+# CONFIGURATION
+# ============================================
+
+# Charger les variables d'environnement depuis .env
 env_path = Path(__file__).parent.parent / '.env'
 load_dotenv(env_path, override=True)
 
-# Configuration Stripe
+# Mode simulation: Active le développement sans vraie clé Stripe
 STRIPE_SIMULATION_MODE = os.getenv("STRIPE_SIMULATION_MODE", "false").lower() == "true"
 
 if STRIPE_SIMULATION_MODE:
@@ -51,12 +83,12 @@ else:
     print(f"✅ SERVICE_JWT configuré pour auth inter-services")
 
 
-# Créer les tables
+# Créer les tables de base de données
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Payments Service", version="1.0.0")
 
-# CORS
+# CORS - Autoriser toutes les origines pour simplifier le développement
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -79,8 +111,33 @@ async def create_payment_intent(
     db: Session = Depends(get_db)
 ):
     """
-    Créer un Payment Intent Stripe pour un paiement direct
-    (utilisé avec Stripe Elements dans le frontend)
+    POST /payment-intent - Crée un Payment Intent Stripe
+    
+    Authentification: NON requis (endpoint public)
+    
+    Utilisé pour:
+        - Intégration Stripe Elements dans le frontend
+        - Paiements directs sans redirection
+        - Meilleur contrôle de l'UX
+    
+    Body:
+        - student_id: ID de l'élève
+        - amount: Montant en dollars (ex: 50.00)
+        - currency: Devise (ex: "cad")
+        - description: Description du paiement
+    
+    Processus:
+        1. Mode simulation: Génère un PI simulé (pi_simulated_xxx)
+        2. Mode production: Appelle Stripe API
+        3. Enregistre dans payments-fastapi DB (status=pending)
+        4. Synchronise avec students-node (crée paiement pending)
+    
+    Retourne:
+        - id: ID local du paiement
+        - client_secret: Secret pour compléter le paiement frontend
+        - amount, currency, status
+    
+    Le statut sera mis à jour en 'succeeded' via webhook après confirmation
     """
     try:
         # Mode simulation: réponse simulée
@@ -208,6 +265,18 @@ async def create_payment_intent(
 # Permet de confirmer côté frontend après redirection Stripe (utile en dev sans webhook public)
 @app.get("/checkout-session/{session_id}/confirm")
 async def confirm_checkout_session(session_id: str, db: Session = Depends(get_db)):
+    """
+    GET /checkout-session/{session_id}/confirm - Confirme une session checkout
+    
+    Endpoint de fallback utilisé en développement sans webhook public
+    Appelé par le frontend après redirection depuis Stripe
+    
+    Processus:
+        1. Récupère la session Stripe
+        2. Vérifie si payée (payment_status=paid ou status=complete)
+        3. Met à jour le paiement local en status=succeeded
+        4. Notifie students-node pour créer le paiement avec status=paid
+    """
     try:
         session = stripe.checkout.Session.retrieve(session_id)
         if not session:
@@ -258,8 +327,35 @@ async def create_checkout_session(
     db: Session = Depends(get_db)
 ):
     """
-    Créer une Checkout Session Stripe (page de paiement hébergée par Stripe)
-    Plus simple pour l'utilisateur - redirige vers Stripe
+    POST /checkout-session - Crée une Checkout Session Stripe
+    
+    Authentification: NON requis (endpoint public)
+    
+    Utilisé pour:
+        - Page de paiement hébergée par Stripe (plus simple)
+        - Redirection automatique vers Stripe
+        - Moins de code frontend nécessaire
+    
+    Body:
+        - student_id: ID de l'élève
+        - amount: Montant en dollars
+        - currency: Devise
+        - description: Description
+        - success_url: URL de retour si succès
+        - cancel_url: URL de retour si annulation
+    
+    Processus:
+        1. Mode simulation: Génère une session simulée (cs_test_simulated_xxx)
+        2. Mode production: Crée une Checkout Session Stripe
+        3. Enregistre dans payments-fastapi DB
+        4. Synchronise avec students-node
+    
+    Retourne:
+        - id: ID local du paiement
+        - url: URL Stripe à ouvrir pour effectuer le paiement
+        - amount, currency
+    
+    L'utilisateur est redirigé vers success_url après paiement
     """
     try:
         payment_id = str(uuid.uuid4())
@@ -412,7 +508,18 @@ async def list_payments(
     status: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Lister tous les paiements avec filtres optionnels"""
+    """
+    GET /payments - Liste tous les paiements Stripe
+    
+    Query params:
+        - student_id: Filtrer par élève (optionnel)
+        - status: Filtrer par statut (pending, succeeded, failed)
+    
+    Retourne: Liste des paiements triés par date (plus récents d'abord)
+    
+    Note: Ces paiements sont stockés localement dans payments-fastapi
+          Les paiements complets sont dans students-node
+    """
     query = db.query(StripePayment)
     
     if student_id:
@@ -425,7 +532,12 @@ async def list_payments(
 
 @app.get("/payments/{payment_id}", response_model=PaymentResponse)
 async def get_payment(payment_id: str, db: Session = Depends(get_db)):
-    """Récupérer un paiement spécifique"""
+    """
+    GET /payments/{payment_id} - Récupère un paiement par son ID
+    
+    Retourne: Détails complets du paiement
+    Erreur 404 si le paiement n'existe pas
+    """
     payment = db.query(StripePayment).filter(StripePayment.id == payment_id).first()
     if not payment:
         raise HTTPException(status_code=404, detail="Paiement non trouvé")
@@ -437,7 +549,19 @@ async def update_payment_status(
     status_update: PaymentStatusUpdate,
     db: Session = Depends(get_db)
 ):
-    """Mettre à jour le statut d'un paiement"""
+    """
+    PATCH /payments/{payment_id}/status - Met à jour le statut d'un paiement
+    
+    Authentification: NON requis (peut être appelé par webhook)
+    
+    Body:
+        - status: Nouveau statut (pending, succeeded, failed)
+        - stripe_payment_intent_id: ID Stripe (optionnel)
+    
+    Si status=succeeded: Définit automatiquement paid_at
+    
+    Utilisé pour: MAJ manuelle du statut ou via webhook
+    """
     payment = db.query(StripePayment).filter(StripePayment.id == payment_id).first()
     if not payment:
         raise HTTPException(status_code=404, detail="Paiement non trouvé")
@@ -464,8 +588,38 @@ async def stripe_webhook(
     db: Session = Depends(get_db)
 ):
     """
-    Webhook pour recevoir les événements Stripe
-    (paiement réussi, échoué, etc.)
+    POST /webhook - Reçoit les événements Stripe
+    
+    Authentification: Signature Stripe (vérification en production)
+    
+    Événements traités:
+        1. payment_intent.succeeded:
+           - MAJ paiement local en succeeded
+           - Notifie students-node pour créer paiement avec status=paid
+           - Incrémente automatiquement tuitionPaid
+        
+        2. payment_intent.payment_failed:
+           - MAJ paiement local en failed
+        
+        3. checkout.session.completed:
+           - MAJ paiement local en succeeded
+           - Notifie students-node (création paiement + MAJ tuitionPaid)
+    
+    Processus automatique:
+        - Reçoit webhook Stripe
+        - Met à jour payments-fastapi DB
+        - Appelle students-node pour synchronisation
+        - students-node incrémente tuitionPaid si type=tuition
+    
+    Configuration:
+        - Stripe Dashboard -> Webhooks
+        - URL: https://votre-domaine.com/webhook
+        - Événements: payment_intent.*, checkout.session.completed
+        - STRIPE_WEBHOOK_SECRET dans .env
+    
+    Développement:
+        - Utiliser stripe CLI: stripe listen --forward-to localhost:4004/webhook
+        - Ou utiliser /checkout-session/{id}/confirm en fallback
     """
     webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
     

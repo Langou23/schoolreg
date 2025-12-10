@@ -1,3 +1,24 @@
+/**
+ * ============================================
+ * SERVICE DE NOTIFICATIONS (notifications-node)
+ * ============================================
+ * Port: 4006 | Node.js + Express + Prisma
+ * 
+ * Responsabilités:
+ * - Gestion centralisée de toutes les notifications
+ * - Stockage dans PostgreSQL
+ * - Endpoints publics (/system) pour les services
+ * - Endpoints protégés (JWT) pour le frontend
+ * 
+ * Types de notifications:
+ * - application_status: Statut des demandes d'inscription
+ * - payment_reminder: Rappels et confirmations de paiement
+ * - enrollment_update: Changements de notes, inscriptions
+ * - general: Notifications générales
+ * - urgent: Alertes urgentes
+ * ============================================
+ */
+
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -9,17 +30,28 @@ import { body, validationResult } from 'express-validator';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Charger les variables d'environnement
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 
 const prisma = new PrismaClient();
 const app = express();
+
+// Configuration
 const PORT = process.env.NOTIFICATIONS_PORT || 4006;
 const JWT_SECRET = process.env.JWT_SECRET || 'default-secret';
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
-// Middleware d'authentification
+// ============================================
+// MIDDLEWARES D'AUTHENTIFICATION
+// ============================================
+
+/**
+ * Vérifie le token JWT de la requête
+ * Utilisé pour les endpoints protégés (frontend)
+ */
 const requireAuth = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -28,13 +60,17 @@ const requireAuth = (req, res, next) => {
     }
     const token = authHeader.substring(7);
     const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
+    req.user = decoded;  // {userId, email, role}
     next();
   } catch (error) {
     return res.status(401).json({ error: 'Invalid token' });
   }
 };
 
+/**
+ * Middleware qui exige un ou plusieurs rôles spécifiques
+ * Usage: app.post('/route', requireAuth, requireRole('admin'), handler)
+ */
 const requireRole = (...roles) => (req, res, next) => {
   if (!req.user || !roles.includes(req.user.role)) {
     return res.status(403).json({ error: 'Forbidden' });

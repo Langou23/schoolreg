@@ -191,8 +191,8 @@ export default function PublicApplicationForm({ onSuccess, user }: PublicApplica
       // Create application
       const application = await ApplicationsApi.create(applicationData);
 
-      console.log('✅ Inscription créée:', application.id, '- Email parent:', application.parentEmail);
-      console.log('📧 Email utilisateur connecté:', user?.email);
+      console.log(' Inscription créée:', application.id, '- Email parent:', application.parentEmail);
+      console.log(' Email utilisateur connecté:', user?.email);
 
       // Upload documents
       for (const doc of documents) {
@@ -238,7 +238,7 @@ export default function PublicApplicationForm({ onSuccess, user }: PublicApplica
             {/* Message de succès */}
             <div className="text-center mb-8">
               <h2 className="text-3xl font-bold text-gray-900 mb-3">
-                ✅ Inscription soumise avec succès !
+                 Inscription soumise avec succès !
               </h2>
               <p className="text-lg text-gray-600 mb-2">
                 Votre demande d'inscription a été enregistrée.
@@ -559,14 +559,14 @@ export default function PublicApplicationForm({ onSuccess, user }: PublicApplica
               
               <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
                 <p className="text-sm text-green-800">
-                  🔔 <strong>Communication par notifications</strong> - Toutes les communications se feront via les notifications dans l'application.
+                   <strong>Communication par notifications</strong> - Toutes les communications se feront via les notifications dans l'application.
                 </p>
               </div>
               
               {user && user.role === 'parent' && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
                   <p className="text-sm text-blue-800">
-                    ℹ️ <strong>Compte parent détecté</strong> - Vos informations sont automatiquement utilisées pour cette inscription.
+                     <strong>Compte parent détecté</strong> - Vos informations sont automatiquement utilisées pour cette inscription.
                   </p>
                 </div>
               )}

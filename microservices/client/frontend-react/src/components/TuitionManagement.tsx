@@ -44,7 +44,7 @@ export default function TuitionManagement({ student, onClose, onSuccess }: Tuiti
         tuitionAmount: amount
       });
 
-      alert(`✅ Frais de scolarité mis à jour avec succès!\n\nAncien montant: ${student.tuitionAmount.toFixed(2)} $ CAD\nNouveau montant: ${amount.toFixed(2)} $ CAD\n\n${newBalance > 0 ? `Une notification a été envoyée au parent pour le solde de ${newBalance.toFixed(2)} $ CAD.` : 'Aucun solde restant.'}`);
+      alert(` Frais de scolarité mis à jour avec succès!\n\nAncien montant: ${student.tuitionAmount.toFixed(2)} $ CAD\nNouveau montant: ${amount.toFixed(2)} $ CAD\n\n${newBalance > 0 ? `Une notification a été envoyée au parent pour le solde de ${newBalance.toFixed(2)} $ CAD.` : 'Aucun solde restant.'}`);
       
       onSuccess();
       onClose();
@@ -139,17 +139,17 @@ export default function TuitionManagement({ student, onClose, onSuccess }: Tuiti
                   </p>
                   {newBalance > currentBalance && (
                     <p className="text-sm text-amber-700 mt-2">
-                      ⚠️ Le parent recevra une notification pour payer le nouveau solde de {newBalance.toFixed(2)} $ CAD.
+                       Le parent recevra une notification pour payer le nouveau solde de {newBalance.toFixed(2)} $ CAD.
                     </p>
                   )}
                   {newBalance < currentBalance && newBalance >= 0 && (
                     <p className="text-sm text-blue-700 mt-2">
-                      ℹ️ Le solde diminue de {currentBalance.toFixed(2)} $ à {newBalance.toFixed(2)} $.
+                       Le solde diminue de {currentBalance.toFixed(2)} $ à {newBalance.toFixed(2)} $.
                     </p>
                   )}
                   {newBalance === 0 && (
                     <p className="text-sm text-green-700 mt-2">
-                      ✅ Les frais seront entièrement payés.
+                       Les frais seront entièrement payés.
                     </p>
                   )}
                 </div>
@@ -198,7 +198,7 @@ export default function TuitionManagement({ student, onClose, onSuccess }: Tuiti
         {/* Note informative */}
         <div className="mt-6 p-3 bg-blue-50 rounded-lg">
           <p className="text-xs text-blue-700">
-            <strong>💡 Note:</strong> Si le nouveau montant est supérieur à l'ancien, un paiement en attente sera automatiquement créé et une notification sera envoyée au parent pour effectuer le paiement du solde.
+            <strong> Note:</strong> Si le nouveau montant est supérieur à l'ancien, un paiement en attente sera automatiquement créé et une notification sera envoyée au parent pour effectuer le paiement du solde.
           </p>
         </div>
       </div>

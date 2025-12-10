@@ -108,7 +108,7 @@ class RAGEngine:
                     "Installez ollama ou configurez une clé OpenAI valide."
                 )
         
-        # Prompt personnalisé en français - Direct et efficace
+        # Prompt personnalisé en français - Strict sur le contexte SchoolReg
         self.text_qa_template_str = (
             "Tu es un assistant virtuel pour SchoolReg, une plateforme de gestion scolaire. "
             "Tu dois être professionnel, précis et utile.\n\n"
@@ -118,14 +118,18 @@ class RAGEngine:
             "{context_str}\n"
             "------------------------------\n\n"
             
-            "RÈGLES DE RÉPONSE:\n"
+            "RÈGLES DE RÉPONSE STRICTES:\n"
             "1. UNIQUEMENT si la question est une salutation initiale (bonjour, salut), réponds chaleureusement et présente-toi BRIÈVEMENT.\n"
             "2. Pour TOUTES les autres questions, va DIRECTEMENT au contenu de la réponse SANS salutation préliminaire.\n"
-            "3. Utilise la documentation ci-dessus comme source principale d'information.\n"
-            "4. Si l'info n'est pas dans la documentation, explique clairement ce que tu peux faire pour aider.\n"
-            "5. Sois concis, clair et direct. Pas de formules de politesse répétitives.\n"
-            "6. Utilise un émoji occasionnel (1 max par réponse) pour être accueillant.\n"
-            "7. Réponds en français.\n\n"
+            "3. Utilise UNIQUEMENT la documentation ci-dessus comme source d'information.\n"
+            "4. Si la question ne concerne PAS SchoolReg (ex: politique, sport, cuisine, histoire, etc.), réponds EXACTEMENT:\n"
+            "   \"Je suis désolé, mais je suis spécialisé uniquement dans l'assistance sur SchoolReg. "
+            "Je peux vous aider avec des questions sur la gestion des élèves, des classes, des paiements, des inscriptions, etc. "
+            "Comment puis-je vous aider avec SchoolReg ? 📚\"\n"
+            "5. Si l'info n'est pas dans la documentation mais concerne SchoolReg, explique ce que tu peux faire.\n"
+            "6. Sois concis, clair et direct. Pas de formules de politesse répétitives.\n"
+            "7. Utilise un émoji occasionnel (1 max par réponse) pour être accueillant.\n"
+            "8. Réponds TOUJOURS en français.\n\n"
             
             "Question: {query_str}\n\n"
             "Réponse directe:"
@@ -193,6 +197,62 @@ class RAGEngine:
         self.index.storage_context.persist(persist_dir=str(self.storage_dir))
         print(f"💾 Index sauvegardé dans {self.storage_dir}")
     
+    def _is_off_topic(self, question: str) -> bool:
+        """
+        Détecte si une question est hors-sujet (ne concerne pas SchoolReg)
+        
+        Args:
+            question: Question de l'utilisateur
+            
+        Returns:
+            True si la question est hors-sujet, False sinon
+        """
+        question_lower = question.lower()
+        
+        # Mots-clés autorisés liés à SchoolReg
+        schoolreg_keywords = [
+            'élève', 'eleve', 'étudiant', 'student',
+            'classe', 'cours', 'course',
+            'paiement', 'payment', 'frais', 'tuition',
+            'inscription', 'register', 'application',
+            'parent', 'école', 'ecole', 'school',
+            'professeur', 'enseignant', 'teacher',
+            'note', 'grade', 'bulletin',
+            'horaire', 'schedule',
+            'admin', 'administrateur',
+            'schoolreg', 'plateforme', 'système', 'systeme',
+            'dashboard', 'tableau', 'bord',
+            'connexion', 'login', 'compte', 'account',
+            'bonjour', 'salut', 'hello', 'aide', 'help', 'comment'
+        ]
+        
+        # Sujets clairement hors-sujet
+        off_topic_keywords = [
+            'recette', 'cuisine', 'cooking', 'recipe',
+            'sport', 'football', 'basketball',
+            'politique', 'president', 'election',
+            'météo', 'meteo', 'weather',
+            'film', 'movie', 'série', 'series',
+            'musique', 'music', 'chanson',
+            'voyage', 'travel', 'vacances',
+            'voiture', 'car', 'auto',
+            'santé', 'sante', 'health', 'médecin', 'medecin',
+            'histoire', 'history', 'guerre',
+            'science', 'chimie', 'physique', 'biologie',
+            'mathématique' if 'problème' in question_lower or 'exercice' in question_lower else None
+        ]
+        off_topic_keywords = [k for k in off_topic_keywords if k]  # Enlever None
+        
+        # Si contient des mots hors-sujet évidents
+        has_off_topic = any(keyword in question_lower for keyword in off_topic_keywords)
+        
+        # Si contient des mots SchoolReg OU si c'est une salutation courte
+        has_schoolreg = any(keyword in question_lower for keyword in schoolreg_keywords)
+        is_greeting = len(question.split()) <= 5 and any(g in question_lower for g in ['bonjour', 'salut', 'hello', 'hi'])
+        
+        # Hors-sujet si: contient des mots interdits ET ne contient pas de mots SchoolReg
+        return has_off_topic and not has_schoolreg and not is_greeting
+    
     def query(self, question: str) -> Dict:
         """
         Interroge l'index et génère une réponse
@@ -205,6 +265,28 @@ class RAGEngine:
         """
         if not self.query_engine:
             raise RuntimeError("Le query engine n'est pas initialisé")
+        
+        # Vérifier si la question est hors-sujet
+        if self._is_off_topic(question):
+            return {
+                "success": True,
+                "question": question,
+                "answer": (
+                    "Je suis désolé, mais je suis spécialisé uniquement dans l'assistance sur SchoolReg. "
+                    "Je peux vous aider avec des questions concernant :\n\n"
+                    "📚 La gestion des élèves et inscriptions\n"
+                    "🏫 Les classes et emplois du temps\n"
+                    "💰 Les paiements et frais de scolarité\n"
+                    "👨‍👩‍👧 Les comptes parents et élèves\n"
+                    "📊 Le tableau de bord administratif\n\n"
+                    "Comment puis-je vous aider avec SchoolReg aujourd'hui ?"
+                ),
+                "sources": [],
+                "model_used": "Off-topic filter",
+                "using_openai": False,
+                "using_ollama": False,
+                "off_topic": True
+            }
         
         try:
             # Exécuter la requête

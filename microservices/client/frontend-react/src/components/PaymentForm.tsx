@@ -56,7 +56,7 @@ export default function PaymentForm({ onClose, onSuccess, payment }: PaymentForm
           ? (student as any).totalBalance 
           : (student.tuitionAmount || 0) - (student.tuitionPaid || 0);
         
-        console.log('💰 Données fraîches de l\'étudiant:', {
+        console.log(' Données fraîches de l\'étudiant:', {
           nom: `${student.firstName} ${student.lastName}`,
           fraisScolarite: student.tuitionAmount,
           payeScolarite: student.tuitionPaid,
@@ -202,7 +202,7 @@ export default function PaymentForm({ onClose, onSuccess, payment }: PaymentForm
               )}
               {paymentMode === 'manual' && (
                 <p className="text-xs text-green-700 mt-2 flex items-center gap-1">
-                  💵 Enregistrement manuel (espèces, virement, etc.)
+                   Enregistrement manuel (espèces, virement, etc.)
                 </p>
               )}
             </div>
@@ -247,7 +247,7 @@ export default function PaymentForm({ onClose, onSuccess, payment }: PaymentForm
               </select>
               {paymentMode === 'stripe' && (
                 <p className="text-xs text-gray-500 mt-1">
-                  💡 Sélectionnez le montant à payer. Devise : dollars canadiens (CAD).
+                   Sélectionnez le montant à payer. Devise : dollars canadiens (CAD).
                 </p>
               )}
             </div>
@@ -285,11 +285,11 @@ export default function PaymentForm({ onClose, onSuccess, payment }: PaymentForm
                     onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    <option value="cash">💵 Espèces</option>
-                    <option value="card">💳 Carte bancaire</option>
-                    <option value="bank_transfer">🏦 Virement bancaire</option>
-                    <option value="mobile_money">📱 Mobile Money</option>
-                    <option value="online">🌐 Paiement en ligne</option>
+                    <option value="cash"> Espèces</option>
+                    <option value="card"> Carte bancaire</option>
+                    <option value="bank_transfer"> Virement bancaire</option>
+                    <option value="mobile_money"> Mobile Money</option>
+                    <option value="online"> Paiement en ligne</option>
                   </select>
                 </div>
 
@@ -318,10 +318,10 @@ export default function PaymentForm({ onClose, onSuccess, payment }: PaymentForm
                     onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    <option value="paid">✅ Payé</option>
-                    <option value="pending">⏳ En attente</option>
-                    <option value="cancelled">❌ Annulé</option>
-                    <option value="refunded">↩️ Remboursé</option>
+                    <option value="paid"> Payé</option>
+                    <option value="pending"> En attente</option>
+                    <option value="cancelled"> Annulé</option>
+                    <option value="refunded"> Remboursé</option>
                   </select>
                 </div>
               </div>

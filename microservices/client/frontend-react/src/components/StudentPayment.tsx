@@ -55,7 +55,7 @@ export default function StudentPayment({
       const pending = allPayments.filter(p => p.status === 'pending');
       setPendingPayments(pending);
       
-      console.log('💰 Paiements pending:', pending);
+      console.log(' Paiements pending:', pending);
     } catch (error) {
       console.error('Error fetching payments:', error);
       setPayments([]);
@@ -93,7 +93,7 @@ export default function StudentPayment({
       // Envoyer notification à l'admin
       await NotificationsApi.create({
         type: 'payment_received',
-        title: '💰 Nouveau paiement reçu',
+        title: ' Nouveau paiement reçu',
         message: `${studentName} a effectué un paiement de ${amount.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $ CA`,
       });
 
@@ -305,10 +305,10 @@ export default function StudentPayment({
             </h4>
             {selectedPayment && (
               <div className="text-sm text-gray-600">
-                <p>💰 Montant: <span className="font-bold">{parseFloat(selectedPayment.amount).toLocaleString('fr-CA')} $ CAD</span></p>
-                <p>🎯 Type: <span className="font-bold">{selectedPayment.paymentType === 'tuition' ? 'Scolarité' : selectedPayment.paymentType === 'transport' ? 'Transport' : selectedPayment.paymentType === 'registration' ? 'Inscription' : selectedPayment.paymentType}</span></p>
+                <p> Montant: <span className="font-bold">{parseFloat(selectedPayment.amount).toLocaleString('fr-CA')} $ CAD</span></p>
+                <p> Type: <span className="font-bold">{selectedPayment.paymentType === 'tuition' ? 'Scolarité' : selectedPayment.paymentType === 'transport' ? 'Transport' : selectedPayment.paymentType === 'registration' ? 'Inscription' : selectedPayment.paymentType}</span></p>
                 {selectedPayment.academicYear && (
-                  <p>🎓 Session: <span className="font-bold">{selectedPayment.academicYear}</span></p>
+                  <p> Session: <span className="font-bold">{selectedPayment.academicYear}</span></p>
                 )}
               </div>
             )}
